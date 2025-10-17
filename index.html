@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEO Article Generator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+    <script type="importmap">
+      {
+        "imports": {
+          "@google/genai": "https://esm.sh/@google/genai@^0.14.0",
+          "marked": "https://esm.sh/marked@13.0.0"
+        }
+      }
+    </script>
+    <script type="module" src="index.tsx"></script>
+</head>
+<body>
+    <header>
+        <h1>AI-Powered SEO Article Generator</h1>
+        <p>Craft perfectly optimized articles by providing detailed content requirements.</p>
+    </header>
+    <main class="container">
+        <div class="controls">
+            <h2>Content Parameters</h2>
+            <form id="article-form">
+                <div class="form-group">
+                    <label for="primary-keyword">Primary Keyword*</label>
+                    <input type="text" id="primary-keyword" name="primary-keyword" placeholder="e.g., 'sustainable gardening'" required>
+                </div>
+                <div class="form-group">
+                    <label for="secondary-keywords">Secondary Keywords</label>
+                    <textarea id="secondary-keywords" name="secondary-keywords" placeholder="e.g., 'organic soil', 'drought-resistant plants', 'urban farming'"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="longtail-keywords">Longtail Keywords</label>
+                    <textarea id="longtail-keywords" name="longtail-keywords" placeholder="e.g., 'how to start a vegetable garden in a small space'"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="cluster-keywords">Cluster Keywords</label>
+                    <textarea id="cluster-keywords" name="cluster-keywords" placeholder="e.g., 'composting', 'pest control', 'watering techniques'"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="related-searches">Related Searches</label>
+                    <textarea id="related-searches" name="related-searches" placeholder="e.g., 'balcony garden ideas', 'best plants for beginners'"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="lsi-keywords">LSI Keywords</label>
+                    <textarea id="lsi-keywords" name="lsi-keywords" placeholder="e.g., 'soil health', 'plant nutrition', 'garden ecosystem'"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="country-slang">Target Country Slang (Optional)</label>
+                    <input type="text" id="country-slang" name="country-slang" placeholder="e.g., 'Australian'">
+                </div>
+                <div class="form-group">
+                    <label for="author-bio">Author Bio (for E-E-A-T)</label>
+                    <textarea id="author-bio" name="author-bio" placeholder="e.g., 'Jane Doe is a certified horticulturalist with over 15 years of experience...'"></textarea>
+                </div>
+                <div class="form-group">
+                    <fieldset>
+                        <legend>Target SERP Features</legend>
+                        <div class="checkbox-group">
+                            <div>
+                                <input type="checkbox" id="serp-featured-snippet" name="serp-features" value="Featured snippet">
+                                <label for="serp-featured-snippet">Featured snippet</label>
+                            </div>
+                            <div>
+                                <input type="checkbox" id="serp-thumbnails" name="serp-features" value="Thumbnails">
+                                <label for="serp-thumbnails">Thumbnails</label>
+                            </div>
+                            <div>
+                                <input type="checkbox" id="serp-people-also-ask" name="serp-features" value="People also ask">
+                                <label for="serp-people-also-ask">People also ask</label>
+                            </div>
+                            <div>
+                                <input type="checkbox" id="serp-top-stories" name="serp-features" value="Top stories">
+                                <label for="serp-top-stories">Top stories</label>
+                            </div>
+                            <div>
+                                <input type="checkbox" id="serp-videos" name="serp-features" value="Videos">
+                                <label for="serp-videos">Videos</label>
+                            </div>
+                            <div>
+                                <input type="checkbox" id="serp-image-pack" name="serp-features" value="Image pack">
+                                <label for="serp-image-pack">Image pack</label>
+                            </div>
+                        </div>
+                    </fieldset>
+                </div>
+                <div class="form-group">
+                    <label for="article-length">Article Length</label>
+                    <select id="article-length" name="article-length">
+                        <option value="short (~500 words)">Short (~500 words)</option>
+                        <option value="medium (~1000 words)" selected>Medium (~1000 words)</option>
+                        <option value="long (~2000 words)">Long (~2000 words)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <fieldset>
+                        <legend>External Linking</legend>
+                        <div class="checkbox-group">
+                            <div>
+                                <input type="checkbox" id="add-external-links" name="add-external-links">
+                                <label for="add-external-links">Add External Links</label>
+                            </div>
+                        </div>
+                         <div id="external-links-count-container" class="form-group hidden" style="margin-top: 1rem; margin-bottom: 0;">
+                            <label for="external-links-count">Number of Links</label>
+                            <input type="number" id="external-links-count" name="external-links-count" value="3" min="1" max="10">
+                        </div>
+                    </fieldset>
+                </div>
+                <div class="form-group">
+                    <label for="multimedia-count">Number of Multimedia Placeholders</label>
+                    <input type="number" id="multimedia-count" name="multimedia-count" value="3" min="0" max="10">
+                </div>
+                 <div class="form-group">
+                    <fieldset>
+                        <legend>Multimedia Types</legend>
+                        <div class="checkbox-group">
+                            <div>
+                                <input type="checkbox" id="type-images" name="multimedia-types" value="Image" checked>
+                                <label for="type-images">Images</label>
+                            </div>
+                            <div>
+                                <input type="checkbox" id="type-infographics" name="multimedia-types" value="Infographic">
+                                <label for="type-infographics">Infographics</label>
+                            </div>
+                             <div>
+                                <input type="checkbox" id="type-diagrams" name="multimedia-types" value="Diagram">
+                                <label for="type-diagrams">Diagrams</label>
+                            </div>
+                        </div>
+                    </fieldset>
+                </div>
+                <div class="form-group">
+                    <label for="image-style">Image Style (Optional)</label>
+                    <input type="text" id="image-style" name="image-style" placeholder="e.g., 'photorealistic', 'cinematic lighting', 'vector art'">
+                </div>
+                <div class="form-group">
+                    <label for="image-prompts">Image Prompts (Optional, one per line)</label>
+                    <textarea id="image-prompts" name="image-prompts" placeholder="If provided, these will override the article's suggested images.&#10;e.g., A close-up of a vibrant tomato plant&#10;A person tending to their balcony garden"></textarea>
+                </div>
+                 <div class="form-group">
+                    <label for="intro-hook">Introduction Hook</label>
+                    <input type="text" id="intro-hook" name="intro-hook" placeholder="e.g., 'Start with a surprising statistic about urban gardening.'">
+                </div>
+                <div class="form-group">
+                    <label for="conclusion-style">Conclusion Style</label>
+                    <input type="text" id="conclusion-style" name="conclusion-style" placeholder="e.g., 'End with a personal touch and an inspiring call to action.'">
+                </div>
+                <button type="submit" id="generate-btn">Generate Article</button>
+            </form>
+        </div>
+        <div class="output-container">
+            <div id="output-stats" class="hidden">
+                <div class="stat-item">
+                    <strong>Readability Score</strong>
+                    <span><span id="readability-score">--</span> (Flesch-Kincaid Grade Level)</span>
+                </div>
+            </div>
+            <div id="output-actions" class="hidden">
+                <button id="copy-btn" class="action-btn">Copy to Clipboard</button>
+                <button id="download-btn" class="action-btn">Export for WordPress (HTML)</button>
+            </div>
+            <div id="loading-indicator" class="hidden">
+                <div class="spinner"></div>
+                <p>Generating your article...</p>
+            </div>
+            <div id="output-placeholder">
+                <p>Your generated article will appear here.</p>
+            </div>
+            <div id="output"></div>
+        </div>
+    </main>
+</body>
+</html>
