@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { marked } from "marked";
 
 // Ensure the API key is handled securely. For this example, it's assumed to be in the environment variables.
@@ -15,9 +15,10 @@ if (!API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
+// --- DOM Element Selection ---
 const form = document.getElementById('article-form') as HTMLFormElement;
 const generateBtn = document.getElementById('generate-btn') as HTMLButtonElement;
-const outputDiv = document.getElementById('output') as HTMLDivElement;
+const outputDiv = document.getElementById('output') as HTMLElement;
 const loadingIndicator = document.getElementById('loading-indicator') as HTMLDivElement;
 const outputPlaceholder = document.getElementById('output-placeholder') as HTMLDivElement;
 const outputActions = document.getElementById('output-actions') as HTMLDivElement;
@@ -28,10 +29,43 @@ const externalLinksCountContainer = document.getElementById('external-links-coun
 const outputStats = document.getElementById('output-stats') as HTMLDivElement;
 const readabilityScoreEl = document.getElementById('readability-score') as HTMLSpanElement;
 
+// New elements for enhanced UI
+const highContrastToggle = document.getElementById('high-contrast-toggle') as HTMLInputElement;
+const summaryKeywordEl = document.getElementById('summary-keyword') as HTMLElement;
+const summaryLengthEl = document.getElementById('summary-length') as HTMLElement;
+const primaryKeywordInput = document.getElementById('primary-keyword') as HTMLInputElement;
+const articleLengthSelect = document.getElementById('article-length') as HTMLSelectElement;
+
+// NLP Elements
+const analyzeNlpBtn = document.getElementById('analyze-nlp-btn') as HTMLButtonElement;
+const nlpEntitiesInput = document.getElementById('nlp-entities') as HTMLTextAreaElement;
+
+
+// --- State Management ---
+let articleJsonLd: string | null = null; // To store the generated JSON-LD for the article
+
+// --- Event Listeners ---
+
+// High Contrast Mode Toggle
+highContrastToggle.addEventListener('change', () => {
+    document.body.classList.toggle('high-contrast', highContrastToggle.checked);
+    localStorage.setItem('highContrastMode', String(highContrastToggle.checked));
+});
+
+// Dynamic Summary Card Updates
+primaryKeywordInput.addEventListener('input', () => {
+    summaryKeywordEl.textContent = primaryKeywordInput.value.trim() || 'Not Set';
+});
+articleLengthSelect.addEventListener('change', () => {
+    summaryLengthEl.textContent = articleLengthSelect.options[articleLengthSelect.selectedIndex].text.split('(')[0].trim();
+});
+
+// External Links Checkbox
 addExternalLinksCheckbox.addEventListener('change', () => {
     externalLinksCountContainer.classList.toggle('hidden', !addExternalLinksCheckbox.checked);
 });
 
+// Main Form Submission
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   
@@ -43,7 +77,10 @@ form.addEventListener('submit', async (e) => {
     return;
   }
 
-  // UI state updates
+  // Reset state
+  articleJsonLd = null;
+  
+  // UI state updates for generation start
   outputDiv.innerHTML = '';
   outputPlaceholder.classList.add('hidden');
   loadingIndicator.classList.remove('hidden');
@@ -57,20 +94,39 @@ form.addEventListener('submit', async (e) => {
 
   try {
     const response = await ai.models.generateContentStream({
-      model: 'gemini-2.5-pro', // Using a more powerful model for better article quality
+      model: 'gemini-2.5-pro',
       contents: prompt,
     });
 
     let firstChunk = true;
-    let fullMarkdownText = '';
+    let buffer = '';
+    const jsonLdStartDelimiter = '%%JSON-LD-START%%';
+    const jsonLdEndDelimiter = '%%JSON-LD-END%%';
+
     for await (const chunk of response) {
       if (firstChunk) {
         loadingIndicator.classList.add('hidden');
         firstChunk = false;
       }
-      fullMarkdownText += chunk.text;
-      // Parse the accumulated markdown and update the DOM.
-      outputDiv.innerHTML = await marked.parse(fullMarkdownText);
+      
+      buffer += chunk.text;
+      
+      // Check if we have received the full JSON-LD block
+      if (!articleJsonLd && buffer.includes(jsonLdEndDelimiter)) {
+        const startIndex = buffer.indexOf(jsonLdStartDelimiter) + jsonLdStartDelimiter.length;
+        const endIndex = buffer.indexOf(jsonLdEndDelimiter);
+        
+        articleJsonLd = buffer.substring(startIndex, endIndex).trim();
+        
+        // Remove the JSON-LD block (including delimiters) from the buffer
+        buffer = buffer.substring(endIndex + jsonLdEndDelimiter.length);
+      }
+      
+      // Render the markdown content, which is whatever is left in the buffer.
+      // We only parse and render *after* the JSON-LD has been extracted.
+      if (articleJsonLd || !buffer.includes(jsonLdStartDelimiter)) {
+        outputDiv.innerHTML = await marked.parse(buffer);
+      }
     }
     
     updateMetrics();
@@ -82,7 +138,6 @@ form.addEventListener('submit', async (e) => {
     outputStats.classList.remove('hidden');
     outputActions.classList.remove('hidden');
 
-
   } catch (error) {
     console.error('Error generating content:', error);
     outputDiv.innerHTML = `<p class="error">An error occurred while generating the article. Please check the console for details.</p>`;
@@ -93,11 +148,105 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
+// Keyword Generation Buttons
+const generateSingleKeywordBtns = document.querySelectorAll('.generate-single-keyword-btn');
+generateSingleKeywordBtns.forEach(button => {
+    button.addEventListener('click', async () => {
+        const btn = button as HTMLButtonElement;
+        const keywordType = btn.dataset.type;
+        const targetTextareaId = btn.dataset.target;
+        
+        if (!keywordType || !targetTextareaId) {
+            console.error('Button is missing data-type or data-target attribute.');
+            return;
+        }
+
+        const primaryKeyword = primaryKeywordInput.value.trim();
+        if (!primaryKeyword) {
+            alert('Please enter a primary keyword first.');
+            return;
+        }
+
+        const targetTextarea = document.getElementById(targetTextareaId) as HTMLTextAreaElement;
+        const btnText = btn.querySelector('.btn-text') as HTMLSpanElement;
+        const spinner = btn.querySelector('.spinner-small') as HTMLDivElement;
+
+        btn.disabled = true;
+        btnText.textContent = '...';
+        spinner.classList.remove('hidden');
+
+        const prompt = `You are an expert SEO keyword strategist. Based on the primary keyword "${primaryKeyword}", generate a list of 5-7 relevant ${keywordType}. Provide the output as a clean JSON array of strings. Do not include any text before or after the JSON array.`;
+        
+        try {
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } },
+                },
+            });
+
+            const keywords = JSON.parse(response.text.trim());
+            targetTextarea.value = (keywords || []).join('\n');
+
+        } catch (error) {
+            console.error(`Error generating ${keywordType}:`, error);
+            alert(`Could not generate ${keywordType}. Please check the console for details.`);
+        } finally {
+            btn.disabled = false;
+            btnText.textContent = 'Generate';
+            spinner.classList.add('hidden');
+        }
+    });
+});
+
+// NLP Analysis Button
+analyzeNlpBtn.addEventListener('click', async () => {
+    const primaryKeyword = primaryKeywordInput.value.trim();
+    if (!primaryKeyword) {
+        alert('Please enter a primary keyword to analyze.');
+        return;
+    }
+
+    const btnText = analyzeNlpBtn.querySelector('.btn-text') as HTMLSpanElement;
+    const spinner = analyzeNlpBtn.querySelector('.spinner-small') as HTMLDivElement;
+
+    analyzeNlpBtn.disabled = true;
+    btnText.textContent = 'Analyzing...';
+    spinner.classList.remove('hidden');
+
+    const prompt = `You are an advanced SEO NLP specialist. Analyze the keyword "${primaryKeyword}". 
+    Identify:
+    1. Salient Entities (Specific people, organizations, locations, or named concepts).
+    2. LSI Keywords (Latent Semantic Indexing terms).
+    3. Thematic relevance terms.
+
+    Return ONLY a comma-separated list of the top 15-20 most important terms and entities that MUST be included in the content to establish topical authority.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+
+        nlpEntitiesInput.value = response.text.trim();
+
+    } catch (error) {
+        console.error('Error generating NLP entities:', error);
+        alert('Could not generate NLP entities. Please check the console for details.');
+    } finally {
+        analyzeNlpBtn.disabled = false;
+        btnText.textContent = 'Analyze & Suggest';
+        spinner.classList.add('hidden');
+    }
+});
+
+// Copy to Clipboard Button
 copyBtn.addEventListener('click', () => {
     try {
         const outputHTML = outputDiv.innerHTML;
         const blob = new Blob([outputHTML], { type: 'text/html' });
-        // The ClipboardItem API is the modern way to write rich text to the clipboard.
         const clipboardItem = new ClipboardItem({ 'text/html': blob });
 
         navigator.clipboard.write([clipboardItem]).then(() => {
@@ -108,17 +257,6 @@ copyBtn.addEventListener('click', () => {
                 copyBtn.textContent = originalText;
                 copyBtn.disabled = false;
             }, 2000);
-        }).catch(err => {
-            console.error('Failed to copy using Clipboard API, falling back.', err);
-            // Fallback for older browsers or if the API fails
-            const listener = (e: ClipboardEvent) => {
-                e.clipboardData?.setData('text/html', outputHTML);
-                e.clipboardData?.setData('text/plain', outputDiv.innerText);
-                e.preventDefault();
-            };
-            document.addEventListener('copy', listener);
-            document.execCommand('copy');
-            document.removeEventListener('copy', listener);
         });
     } catch(e) {
         console.error("Copying failed", e);
@@ -126,32 +264,34 @@ copyBtn.addEventListener('click', () => {
     }
 });
 
+// Download HTML Button
 downloadBtn.addEventListener('click', () => {
     const primaryKeyword = (document.getElementById('primary-keyword') as HTMLInputElement).value || 'generated-article';
-    // Sanitize the filename
     const fileName = `${primaryKeyword.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.html`;
     
-    // Create a full HTML document for download
-    const fileContent = `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>${primaryKeyword}</title>
-            <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #333; }
-                img { max-width: 100%; height: auto; border-radius: 8px; margin: 1em 0; }
-                h1, h2, h3, h4, h5, h6 { color: #111; }
-                a { color: #007bff; text-decoration: none; }
-                a:hover { text-decoration: underline; }
-            </style>
-        </head>
-        <body>
-            ${outputDiv.innerHTML}
-        </body>
-        </html>
-    `;
+    const jsonLdScript = articleJsonLd ? `<script type="application/ld+json">${articleJsonLd}</script>` : '';
+
+    const fileContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${primaryKeyword}</title>
+    ${jsonLdScript}
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #333; }
+        img { max-width: 100%; height: auto; border-radius: 8px; margin: 1em 0; }
+        h1, h2, h3, h4, h5, h6 { color: #111; }
+        a { color: #007bff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <article>
+        ${outputDiv.innerHTML}
+    </article>
+</body>
+</html>`;
     
     const blob = new Blob([fileContent], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
@@ -162,16 +302,25 @@ downloadBtn.addEventListener('click', () => {
     document.body.appendChild(a);
     a.click();
     
-    // Cleanup
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 });
 
+// --- Helper Functions ---
+
+/** Initializes the application state from localStorage. */
+function initialize() {
+    const highContrastSaved = localStorage.getItem('highContrastMode') === 'true';
+    highContrastToggle.checked = highContrastSaved;
+    document.body.classList.toggle('high-contrast', highContrastSaved);
+
+    // Initialize summary card
+    summaryKeywordEl.textContent = primaryKeywordInput.value.trim() || 'Not Set';
+    summaryLengthEl.textContent = articleLengthSelect.options[articleLengthSelect.selectedIndex].text.split('(')[0].trim();
+}
 
 /**
- * Finds image placeholders in the generated text, generates images using Gemini,
- * and replaces the placeholders with the images.
- * @param formData The form data containing image prompts and styles.
+ * Finds image placeholders, generates images, and replaces the placeholders.
  */
 async function generateAndPlaceImages(formData: FormData): Promise<void> {
     const finalHtml = outputDiv.innerHTML;
@@ -181,44 +330,28 @@ async function generateAndPlaceImages(formData: FormData): Promise<void> {
     const placeholderRegex = /\[(Image|Infographic|Diagram): (.*?)\]/g;
     const placeholders = [...finalHtml.matchAll(placeholderRegex)];
 
-    if (placeholders.length === 0) {
-        return; // No images to generate
-    }
+    if (placeholders.length === 0) return;
 
     const imageGenerationTasks = placeholders.map((match, index) => {
-        const type = match[1]; // e.g., "Image", "Infographic"
-        const caption = match[2];
-
-        // Use user-provided prompt if available, otherwise use the caption from the text
+        const type = match[1];
+        const caption = match[2]; // This caption will double as good alt text.
         let basePrompt = imagePrompts[index] || caption;
-        
-        // Craft a more specific prompt for infographics and diagrams
-        let finalPrompt = basePrompt;
-        if (type.toLowerCase() !== 'image') {
-          finalPrompt = `An ${type.toLowerCase()} about: "${basePrompt}"`;
-        }
-        
-        if (imageStyle) {
-            finalPrompt = `${imageStyle}, ${finalPrompt}`;
-        }
-        
+        let finalPrompt = `${imageStyle ? imageStyle + ', ' : ''}An ${type.toLowerCase()} about: "${basePrompt}"`;
         return { caption, prompt: finalPrompt };
     });
 
-    // Replace text placeholders with loading indicators
     let placeholderIndex = 0;
     const htmlWithLoaders = finalHtml.replace(placeholderRegex, () => {
         const task = imageGenerationTasks[placeholderIndex];
         const loaderId = `image-loader-${placeholderIndex}`;
         placeholderIndex++;
-        return `<div id="${loaderId}" class="image-placeholder loading" role="status" aria-live="polite">
+        return `<figure id="${loaderId}" class="image-placeholder loading" role="status" aria-live="polite">
                     <div class="spinner"></div>
-                    <p>Generating: <em>${task.caption}</em></p>
-                </div>`;
+                    <figcaption>Generating: <em>${task.caption}</em></figcaption>
+                </figure>`;
     });
     outputDiv.innerHTML = htmlWithLoaders;
 
-    // Start generating images and replace loaders when complete
     const imagePromises = imageGenerationTasks.map(async (task, index) => {
         const loaderId = `image-loader-${index}`;
         const loaderElement = document.getElementById(loaderId);
@@ -227,26 +360,17 @@ async function generateAndPlaceImages(formData: FormData): Promise<void> {
             const response = await ai.models.generateImages({
                 model: 'imagen-4.0-generate-001',
                 prompt: task.prompt,
-                config: {
-                    numberOfImages: 1,
-                    outputMimeType: 'image/jpeg',
-                    aspectRatio: '16:9',
-                },
+                config: { numberOfImages: 1, outputMimeType: 'image/jpeg', aspectRatio: '16:9' },
             });
             
             const base64ImageBytes = response.generatedImages[0].image.imageBytes;
-            if (!base64ImageBytes) {
-                throw new Error("API did not return image data.");
-            }
+            if (!base64ImageBytes) throw new Error("API did not return image data.");
 
             const imageUrl = `data:image/jpeg;base64,${base64ImageBytes}`;
-            
-            const imgElement = document.createElement('img');
-            imgElement.src = imageUrl;
-            imgElement.alt = task.caption;
-            imgElement.classList.add('generated-image');
-            
-            loaderElement?.replaceWith(imgElement);
+            const figureElement = document.createElement('figure');
+            figureElement.classList.add('generated-image-container');
+            figureElement.innerHTML = `<img src="${imageUrl}" alt="${task.caption}" class="generated-image"><figcaption>${task.caption}</figcaption>`;
+            loaderElement?.replaceWith(figureElement);
         } catch (error) {
             console.error(`Error generating image for prompt "${task.prompt}":`, error);
             if (loaderElement) {
@@ -260,141 +384,119 @@ async function generateAndPlaceImages(formData: FormData): Promise<void> {
     await Promise.all(imagePromises);
 }
 
-/**
- * Calculates a word's syllable count using a heuristic approach.
- * @param word The word to count syllables for.
- * @returns The estimated number of syllables.
- */
 function countSyllables(word: string): number {
     if (!word) return 0;
     word = word.toLowerCase().replace(/[^a-z]/g, '');
     if (word.length <= 3) return 1;
-
     let count = word.match(/[aeiouy]+/g)?.length || 0;
-
-    // Adjust for silent 'e' at the end of a word
     if (word.endsWith('e') && !word.endsWith('le')) {
         const stem = word.slice(0, -1);
-        if (stem.match(/[aeiouy]/)) {
-            count--;
-        }
+        if (stem.match(/[aeiouy]/)) count--;
     }
-    
-    return Math.max(1, count); // Every word has at least one syllable
+    return Math.max(1, count);
 }
 
-/**
- * Calculates the Flesch-Kincaid grade level for a given text.
- * @param text The text content to analyze.
- * @returns The calculated grade level.
- */
 function calculateReadability(text: string): number {
-    if (!text || text.trim().length < 20) {
-        return 0;
-    }
+    if (!text || text.trim().length < 20) return 0;
     
     const words = text.trim().split(/\s+/).filter(w => w.length > 0);
     const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
-    
     const wordCount = words.length;
-    // Avoid division by zero if no sentences are found
     const sentenceCount = sentences.length > 0 ? sentences.length : 1;
 
-    if (wordCount < 10) return 0; // Not enough content to score accurately
+    if (wordCount < 10) return 0;
 
     const syllableCount = words.reduce((acc, word) => acc + countSyllables(word), 0);
-    
-    // Flesch-Kincaid Grade Level formula
     const grade = 0.39 * (wordCount / sentenceCount) + 11.8 * (syllableCount / wordCount) - 15.59;
-    
-    return Math.round(grade * 10) / 10; // Round to one decimal place
+    return Math.round(grade * 10) / 10;
 }
 
-/**
- * Updates all content metrics, like readability score.
- */
 function updateMetrics() {
     const text = outputDiv.innerText;
     const score = calculateReadability(text);
-    if (score > 0) {
-        readabilityScoreEl.textContent = score.toFixed(1);
-    } else {
-        readabilityScoreEl.textContent = 'N/A';
-    }
+    readabilityScoreEl.textContent = score > 0 ? score.toFixed(1) : 'N/A';
 }
-
 
 function constructPrompt(formData: FormData): string {
     const getVal = (id: string) => (formData.get(id) as string).trim();
-    const getSerpFeatures = () => {
-        const features = formData.getAll('serp-features') as string[];
-        return features.length > 0 ? features.join(', ') : 'N/A';
-    };
-    const getMultimediaTypes = () => {
-        const types = formData.getAll('multimedia-types') as string[];
-        return types.length > 0 ? types.join(', ') : 'Image';
-    };
+    const getSerpFeatures = () => (formData.getAll('serp-features') as string[]).join(', ') || 'N/A';
+    const getMultimediaTypes = () => (formData.getAll('multimedia-types') as string[]).join(', ') || 'Image';
     const addExternalLinks = formData.get('add-external-links') === 'on';
     const externalLinksCount = getVal('external-links-count');
-    
+    const allKeywords = [
+        getVal('primary-keyword'),
+        getVal('secondary-keywords'),
+        getVal('longtail-keywords'),
+        getVal('cluster-keywords'),
+        getVal('related-searches'),
+        getVal('lsi-keywords')
+    ].join('\n').split('\n').filter(k => k.trim() !== '').join(', ');
+
+    // NLP Values
+    const nlpEntities = getVal('nlp-entities');
+    const nlpTone = getVal('nlp-tone');
+
+    // Affiliate Values
+    const affiliateUrl = getVal('affiliate-url');
+    const affiliateProduct = getVal('affiliate-product');
+    const affiliateAnchor = getVal('affiliate-anchor');
+
     return `
-      You are an expert SEO content writer and strategist. Your task is to write a high-quality, engaging, and SEO-optimized article based on the following detailed specifications.
-      The article must be well-structured, easy to read, and provide real value to the reader. Use Markdown for formatting (headings, subheadings, lists, bold text, and links).
+      You are an expert SEO content writer and strategist. Your task is to generate a complete response containing two parts: a JSON-LD schema and a full article.
+
+      **PART 1: JSON-LD SCHEMA**
+      - First, create a valid JSON-LD \`Article\` schema.
+      - The schema must include: \`@context\`, \`@type\`, \`headline\`, \`author\` (using the bio if provided, otherwise a generic name), \`datePublished\` (use today's date in YYYY-MM-DD format), and \`keywords\` (a comma-separated string of all provided keywords).
+      - Enclose the entire JSON-LD object within these exact delimiters: %%JSON-LD-START%% and %%JSON-LD-END%%. Do not include any other text before or after the JSON-LD within these delimiters.
+
+      **PART 2: SEO-OPTIMIZED ARTICLE**
+      - Immediately after the JSON-LD block, write a high-quality, engaging article based on the following specifications.
+      - Use Markdown for formatting (headings, lists, bold, links).
 
       ---
       **ARTICLE SPECIFICATIONS:**
       ---
 
-      **1. Primary Keyword (Focus Topic):** ${getVal('primary-keyword')}
-      
-      **2. Secondary Keywords (Incorporate naturally):** 
-      ${getVal('secondary-keywords') || 'N/A'}
-
-      **3. Longtail Keywords (Address these specific queries):** 
-      ${getVal('longtail-keywords') || 'N/A'}
-
-      **4. Cluster Keywords (Use to build topical authority):** 
-      ${getVal('cluster-keywords') || 'N/A'}
-
-      **5. Related Searches (Cover these related topics):** 
-      ${getVal('related-searches') || 'N/A'}
-      
-      **6. LSI Keywords (Include for semantic relevance):**
-      ${getVal('lsi-keywords') || 'N/A'}
-
-      **7. Target Audience Tone & Language:** 
-      - **Country/Region Slang:** ${getVal('country-slang') || 'General / Global'}
-      
-      **8. E-E-A-T (Experience, Expertise, Authoritativeness, Trustworthiness):**
-      - **Author Bio to reference for tone and expertise:** ${getVal('author-bio') || 'N/A'}
-      ${getVal('author-bio') ? `
-      - **E-E-A-T Instructions:**
-        - **Show, Don't Just Tell:** Based on the provided author bio, weave in practical, first-hand experience examples. Use phrases that reflect personal experience (e.g., "In my experience...", "A common mistake I see is...", "I've found that...").
-        - **Cite Credible Sources:** To build authority and trust, mention credible sources, studies, or experts to back up claims. For example, "According to a study by [Relevant Institution]..." or "As noted by expert [Expert's Name]...". This demonstrates a commitment to accuracy.` : ''}
-
-      **9. Structure & Format:**
-      - **Target SERP Features (Optimize for these):** ${getSerpFeatures()}
-        - If "Featured snippet" is targeted, include a concise, clear paragraph (40-60 words) directly answering the primary keyword's query near the top of the article.
-        - If "People also ask" is targeted, structure sections of the article in a Q&A format using the longtail keywords and related searches as questions.
-        - If "Thumbnails", "Videos", or "Image pack" are targeted, ensure the multimedia placeholders are descriptive and relevant to the surrounding content.
-        - If "Top stories" is targeted, adopt a slightly more news-oriented or timely tone if appropriate for the topic.
-      - **Article Length:** ${getVal('article-length')}
-      - **Multimedia:** Include exactly ${getVal('multimedia-count')} placeholders for multimedia. The allowed types are: ${getMultimediaTypes()}. Use the format [Type: A descriptive caption of the content]. For example: [Infographic: A chart showing the growth of sustainable gardening].
-      - **Introduction:** Must have a strong hook. Specific instruction: "${getVal('intro-hook') || 'Grab the reader\'s attention immediately.'}"
-      - **Conclusion:** Should provide a clear summary and call to action. Specific instruction: "${getVal('conclusion-style') || 'End with a memorable and impactful closing statement.'}"
+      **1. Primary Keyword:** ${getVal('primary-keyword')}
+      **2. All Keywords to Incorporate:** ${allKeywords}
+      **3. Author Bio (for tone/expertise):** ${getVal('author-bio') || 'An expert in the field.'}
+      **4. Target Audience Tone & Language (Slang):** ${getVal('country-slang') || 'General / Global'}
+      **5. NLP & Semantic Instructions:**
+         - **Salient Entities to Cover:** ${nlpEntities || 'Focus on standard relevant terms.'}
+         - **Semantic Tone:** ${nlpTone}
+         - **Instruction:** Ensure high entity density for the listed concepts without keyword stuffing. Use natural language patterns that align with the specified tone.
+      **6. Structure & Format:**
+         - **Target SERP Features:** ${getSerpFeatures()}
+         - **Article Length:** ${getVal('article-length')}
+         - **Multimedia:** Include exactly ${getVal('multimedia-count')} placeholders for [${getMultimediaTypes()}] using the format [Type: A descriptive caption].
+         - **Intro Hook:** "${getVal('intro-hook') || 'Grab the reader\'s attention immediately.'}"
+         - **Conclusion Style:** "${getVal('conclusion-style') || 'End with a memorable closing statement.'}"
+      ${addExternalLinks ? `- **External Linking:** Include exactly ${externalLinksCount} high-authority external links using Markdown format: \`[Anchor Text](https://www.example.com)\`.` : ''}
 
       ---
       **WRITING INSTRUCTIONS:**
       ---
-      - **CRITICAL NOTE ON TONE:** If a "Target Country Slang" is specified (i.e., not 'General / Global'), it is MANDATORY to incorporate relevant slang and colloquialisms naturally throughout the article to match that region's tone. This is a primary requirement.
-      - **Title:** Create a compelling, SEO-friendly title that includes the primary keyword.
-      - **Headings:** Use H2 and H3 headings to structure the article logically.
-      - **Flow:** Ensure the article flows naturally from one section to the next.
-      - **Keyword Integration:** Weave all provided keywords into the text organically. Do not "stuff" keywords.
-      - **Formatting:** Use short paragraphs, bullet points, and bold text to improve readability.
-      - **Placeholders:** Insert the multimedia placeholders at relevant points in the article, following the specified format and types.
-      ${addExternalLinks ? `- **External Linking:** You MUST include exactly ${externalLinksCount} high-authority, non-competitive external links within the article. Identify relevant anchor text naturally within the content and hyperlink it to a credible external source. Use the correct Markdown format for links: \`[Anchor Text](https://www.example.com)\`.` : ''}
-
-      Now, generate the complete article based on these specifications.
+      - Create a compelling, SEO-friendly title.
+      - Weave all keywords naturally into the text. Do not "stuff" them.
+      - Use H2 and H3 headings for logical structure.
+      - Before the final conclusion, include a "People Also Ask" (PAA) section with 4-5 relevant questions and their concise answers. Use an H2 heading for this section.
+      - Use short paragraphs, bullet points, and bold text for readability.
+      - Adhere to the specified tone and slang if a country is provided.
+      - If an author bio is provided, write in a first-person perspective that reflects that experience.
+      ${affiliateUrl ? `
+      - **AFFILIATE LINK STRATEGY (CRITICAL):**
+        - **Product:** ${affiliateProduct || 'Recommended Product'}
+        - **Link:** ${affiliateUrl}
+        - **Anchor Text:** ${affiliateAnchor || 'Check price'}
+        - **Placement:** You MUST insert this affiliate link in **two specific locations**:
+          1. **Introduction:** Naturally weave the link into the first 150 words. It must feel like a helpful resource, not an ad.
+          2. **Dedicated CTA Section:** Create a distinct "Recommended Product" or "Editor's Choice" section just before the Conclusion. This section should highlight the product's benefits and use the provided anchor text.
+        - **Tone:** The recommendation must be **value-driven**. Explain *why* this product helps the reader achieve their goals.
+      ` : ''}
+      
+      Begin the response now, starting with the JSON-LD block.
     `;
 }
+
+// --- App Initialization ---
+initialize();
