@@ -56,6 +56,61 @@
                         <label for="primary-keyword">Primary Keyword*</label>
                         <input type="text" id="primary-keyword" name="primary-keyword" placeholder="e.g., 'sustainable gardening'" required>
                     </div>
+
+                    <div class="form-group">
+                        <label for="target-language">Target Language</label>
+                        <select id="target-language" name="target-language">
+                            <option value="English" selected>English</option>
+                            <option value="Hindi">Hindi (हिन्दी)</option>
+                            <option value="Tamil">Tamil (தமிழ்)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="reference-url">Reference / Source URL (Optional)</label>
+                        <input type="text" id="reference-url" name="reference-url" placeholder="e.g., https://searchengineland.com/article-slug">
+                        <p class="fieldset-helper-text" style="margin-top: 0.5rem;">If provided, the article will be based on the content of this link.</p>
+                    </div>
+
+                    <!-- Competitor Analysis Section -->
+                    <div class="form-group">
+                        <fieldset>
+                            <legend>Competitor Analysis</legend>
+                            <div class="checkbox-group">
+                                <div>
+                                    <input type="checkbox" id="analyze-competitors" name="analyze-competitors">
+                                    <label for="analyze-competitors">Analyze Top 10 SERP Results</label>
+                                </div>
+                            </div>
+                            <p class="fieldset-helper-text">Uses Google Search to research current top ranking articles and identify content gaps (Skyscraper Technique).</p>
+                        </fieldset>
+                    </div>
+
+                    <!-- Helpful Content & E-E-A-T Section -->
+                    <div class="form-group">
+                        <fieldset style="border-color: var(--primary-color);">
+                            <legend style="color: var(--primary-color);">Helpful Content & E-E-A-T</legend>
+                            <p class="fieldset-helper-text">Align with Google's guidelines for reliable, people-first content.</p>
+                            
+                            <div style="margin-bottom: 1rem;">
+                                <label for="reader-problem">Reader's Core Problem</label>
+                                <input type="text" id="reader-problem" name="reader-problem" placeholder="What specific problem is the user trying to solve? (e.g., 'Fixing a leaky faucet without tools')">
+                            </div>
+
+                            <div style="margin-bottom: 1rem;">
+                                <label for="unique-insights">Unique Experience / Data (The "E" in E-E-A-T)</label>
+                                <textarea id="unique-insights" name="unique-insights" placeholder="Paste personal anecdotes, original data, or case studies here. This prevents generic AI content." style="min-height: 100px;"></textarea>
+                            </div>
+                            
+                            <div class="checkbox-group">
+                                <div>
+                                    <input type="checkbox" id="people-first-mode" name="people-first-mode" checked>
+                                    <label for="people-first-mode">Enforce "People-First" Filter (Removes fluff)</label>
+                                </div>
+                            </div>
+                        </fieldset>
+                    </div>
+
                     <div class="form-group">
                         <div class="form-group-header">
                             <label for="secondary-keywords">Secondary Keywords</label>
@@ -135,6 +190,29 @@
                         </fieldset>
                     </div>
                     <!-- NLP Section End -->
+
+                    <!-- Advanced Ranking Signals Section -->
+                    <div class="form-group">
+                        <fieldset>
+                            <legend>Advanced Ranking Signals</legend>
+                            <p class="fieldset-helper-text">Target specific Google ranking systems.</p>
+                            <div class="checkbox-group">
+                                <div>
+                                    <input type="checkbox" id="optimize-passage-ranking" name="optimize-passage-ranking">
+                                    <label for="optimize-passage-ranking">Optimize for Passage Ranking (Featured Snippets)</label>
+                                </div>
+                                <div>
+                                    <input type="checkbox" id="include-key-takeaways" name="include-key-takeaways" checked>
+                                    <label for="include-key-takeaways">Include "Key Takeaways" (RankBrain/UX)</label>
+                                </div>
+                                <div>
+                                    <input type="checkbox" id="add-myth-busting" name="add-myth-busting">
+                                    <label for="add-myth-busting">Add "Myths vs. Facts" (Originality)</label>
+                                </div>
+                            </div>
+                        </fieldset>
+                    </div>
+                    <!-- End Ranking Signals Section -->
 
                     <div class="form-group">
                         <label for="country-slang">Target Country Slang (Optional)</label>
@@ -279,10 +357,24 @@
                  <h2 id="output-heading" class="visually-hidden">Generated Article Output</h2>
                 <div id="output-stats" class="hidden">
                     <div class="stat-item">
+                        <strong>SEO Optimization Score</strong>
+                        <span><span id="seo-score">--</span> / 100</span>
+                    </div>
+                    <div class="stat-item">
                         <strong>Readability Score</strong>
                         <span><span id="readability-score">--</span> (Flesch-Kincaid Grade Level)</span>
                     </div>
                 </div>
+                
+                <!-- Meta Description Display Area -->
+                <div id="meta-description-container" class="hidden" style="margin-bottom: 1.5rem; padding: 1rem; background: #050505; border: 1px solid var(--border-color); border-radius: 6px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <strong style="color: var(--primary-color);">Auto-Generated Meta Description</strong>
+                        <span id="meta-char-count" style="font-size: 0.8rem; color: var(--text-muted);">0 / 160</span>
+                    </div>
+                    <p id="meta-description-text" style="font-size: 0.95rem; line-height: 1.4; color: var(--text-color); margin: 0;"></p>
+                </div>
+
                 <div id="output-actions" class="hidden">
                     <button id="copy-btn" class="action-btn">Copy to Clipboard</button>
                     <button id="download-btn" class="action-btn">Export for WordPress (HTML)</button>
