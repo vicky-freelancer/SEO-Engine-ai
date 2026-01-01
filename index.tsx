@@ -107,7 +107,7 @@ form.addEventListener('submit', async (e) => {
 
   try {
     const requestConfig: any = {
-        thinkingConfig: { thinkingBudget: 0 } // Standard speed for generation
+        thinkingConfig: { thinkingBudget: 16384 } // High budget for deep reasoning and SEO structure
     };
     
     // Always use search tool if reference URL is provided or competitor analysis is requested
@@ -116,7 +116,7 @@ form.addEventListener('submit', async (e) => {
     }
 
     const response = await ai.models.generateContentStream({
-      model: 'gemini-2.5-pro',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: requestConfig
     });
@@ -242,9 +242,10 @@ generateSingleKeywordBtns.forEach(button => {
         
         try {
             const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+                model: 'gemini-3-flash-preview',
                 contents: prompt,
                 config: {
+                    thinkingConfig: { thinkingBudget: 0 },
                     responseMimeType: "application/json",
                     responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } },
                 },
@@ -289,8 +290,11 @@ analyzeNlpBtn.addEventListener('click', async () => {
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3-flash-preview',
             contents: prompt,
+            config: {
+                thinkingConfig: { thinkingBudget: 0 }
+            }
         });
 
         nlpEntitiesInput.value = response.text.trim();
