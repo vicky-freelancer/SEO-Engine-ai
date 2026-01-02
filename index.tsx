@@ -82,7 +82,7 @@ function calculateSEOScore(text: string, html: string, formData: FormData): numb
 
     // 3. Keyword density (target 1-2%)
     const wordCount = lowerText.split(/\s+/).length;
-    const instances = (lowerText.match(new RegExp(primary, 'gi')) || []).length;
+    const instances = (lowerText.match(new RegExp(primary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')) || []).length;
     const density = (instances / wordCount) * 100;
     if (density >= 0.5 && density <= 2.5) score += 20;
     else if (density > 0) score += 10;
@@ -189,7 +189,7 @@ form.addEventListener('submit', async (e) => {
     }
 
     updateMetrics(formData);
-    await generateAndPlaceImages(formData);
+    await generateAndPlaceImages(formData, primaryKeyword);
     
     outputStats.classList.remove('hidden');
     outputActions.classList.remove('hidden');
@@ -330,6 +330,7 @@ function constructPrompt(formData: FormData): string {
     const refUrl = get('reference-url');
     const author = get('author-bio');
     const length = get('article-length');
+    const targetWordCount = get('target-word-count');
     const humanize = formData.get('humanize-mode') === 'on';
 
     const imageCount = get('image-count');
@@ -370,6 +371,10 @@ function constructPrompt(formData: FormData): string {
       You are a World-Class SEO Strategist and Professional Content Writer. 
       Your mission is to produce a high-performance, human-centric article in **${lang}**.
 
+      **ARTICLE TARGETS**:
+      - **Target Word Count**: The article MUST be approximately **${targetWordCount} words** long.
+      - **Article Length Preference**: ${length}
+
       **INPUT DATA SOURCES**:
       ${refUrl ? `- **Reference URL**: ${refUrl}` : ''}
       ${sourceContent ? `- **Reference Source Text**: """${sourceContent}"""` : ''}
@@ -385,9 +390,10 @@ function constructPrompt(formData: FormData): string {
       4. **E-E-A-T Depth**: Incorporate "Unique Insights" and solve the "Reader's Core Problem" directly.
       5. **Structure**: 
          - H1: Compelling title.
+         - **FEATURED IMAGE**: Immediately after H1, include exactly one [Featured Image: A professional thumbnail with the text "${primary}" integrated into the design].
          - "Key Takeaways" section.
          - Use H2 and H3 subheadings frequently.
-         - **MULTIMEDIA ASSETS**:
+         - **ADDITIONAL MULTIMEDIA ASSETS**:
            - Include exactly ${imageCount} image placeholders: [Image: Descriptive caption for AI image generation].
            - Include exactly ${infographicCount} infographic placeholders: [Infographic: Descriptive caption].
            - Include exactly ${diagramCount} diagram placeholders: [Diagram: Descriptive caption].
@@ -402,14 +408,13 @@ function constructPrompt(formData: FormData): string {
       Part 1: %%JSON-LD-START%% [Valid Article Schema JSON] %%JSON-LD-END%%
       Part 2: %%META-START%% [155-character meta description in ${lang}] %%META-END%%
       Part 3: [Full Markdown Article]
-
-      Target length is ${length}.
     `;
 }
 
-async function generateAndPlaceImages(formData: FormData): Promise<void> {
+async function generateAndPlaceImages(formData: FormData, primaryKeyword: string): Promise<void> {
     const html = outputDiv.innerHTML;
-    const regex = /\[(Image|Infographic|Diagram|Media): (.*?)\]/g;
+    // Updated regex to include Featured Image
+    const regex = /\[(Featured Image|Image|Infographic|Diagram|Media): (.*?)\]/g;
     const matches = [...html.matchAll(regex)];
     if (matches.length === 0) return;
 
@@ -419,10 +424,19 @@ async function generateAndPlaceImages(formData: FormData): Promise<void> {
         const placeholder = match[0];
         const type = match[1];
         const caption = match[2];
+
+        // Specific handling for Featured Image to ensure text is rendered
+        let generationPrompt = "";
+        if (type === "Featured Image") {
+            generationPrompt = `A high-end, cinematic professional featured image / hero header for an article about "${primaryKeyword}". The image MUST clearly feature the text "${primaryKeyword}" as a stylish, legible typography element or integrated into a modern digital interface. 8k resolution, minimalist corporate aesthetic, professional color grading.`;
+        } else {
+            generationPrompt = `A professional, high-quality ${type.toLowerCase()} for a blog post showing: ${caption}. Cinematic lighting, 8k resolution, modern corporate aesthetic.`;
+        }
+        
         try {
             const res = await ai.models.generateImages({
                 model: 'imagen-4.0-generate-001',
-                prompt: `A professional, high-quality ${type.toLowerCase()} for a blog post showing: ${caption}. Cinematic lighting, 8k resolution, modern corporate aesthetic.`,
+                prompt: generationPrompt,
                 config: { 
                     numberOfImages: 1, 
                     aspectRatio: '16:9' 
