@@ -106,7 +106,8 @@ form.addEventListener('submit', async (e) => {
 
   try {
     const requestConfig: any = {
-        thinkingConfig: { thinkingBudget: 0 } 
+        // Fix: gemini-3-pro-preview requires a valid thinking budget and only works in thinking mode.
+        thinkingConfig: { thinkingBudget: 32768 } 
     };
     if (analyzeCompetitors) {
       requestConfig.tools = [{googleSearch: {}}];
@@ -140,7 +141,7 @@ form.addEventListener('submit', async (e) => {
         ];
       }
 
-      buffer += chunk.text;
+      buffer += chunk.text || "";
       
       // Extract JSON-LD
       if (!articleJsonLd && buffer.includes(jsonLdEndDelimiter)) {
