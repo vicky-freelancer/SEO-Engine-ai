@@ -385,6 +385,7 @@ function initialize() {
 
 /**
  * Finds image placeholders, generates images, and replaces the placeholders.
+ * Sequential processing with exponential backoff for rate limiting.
  */
 async function generateAndPlaceImages(formData: FormData, primaryKeyword: string): Promise<void> {
     const finalHtml = outputDiv.innerHTML;
@@ -411,6 +412,7 @@ async function generateAndPlaceImages(formData: FormData, primaryKeyword: string
         return { caption, prompt: finalPrompt, type };
     });
 
+    // Replace all placeholders with skeleton loaders first
     let placeholderIndex = 0;
     const htmlWithLoaders = finalHtml.replace(placeholderRegex, () => {
         const task = imageGenerationTasks[placeholderIndex];
@@ -423,36 +425,70 @@ async function generateAndPlaceImages(formData: FormData, primaryKeyword: string
     });
     outputDiv.innerHTML = htmlWithLoaders;
 
-    const imagePromises = imageGenerationTasks.map(async (task, index) => {
-        const loaderId = `image-loader-${index}`;
+    // Process tasks SEQUENTIALLY to respect rate limits
+    for (let i = 0; i < imageGenerationTasks.length; i++) {
+        const task = imageGenerationTasks[i];
+        const loaderId = `image-loader-${i}`;
         const loaderElement = document.getElementById(loaderId);
         
-        try {
-            const response = await ai.models.generateImages({
-                model: 'imagen-4.0-generate-001',
-                prompt: task.prompt,
-                config: { numberOfImages: 1, outputMimeType: 'image/jpeg', aspectRatio: '16:9' },
-            });
-            
-            const base64ImageBytes = response.generatedImages[0].image.imageBytes;
-            if (!base64ImageBytes) throw new Error("API did not return image data.");
+        let attempts = 0;
+        const maxAttempts = 3;
+        let success = false;
 
-            const imageUrl = `data:image/jpeg;base64,${base64ImageBytes}`;
-            const figureElement = document.createElement('figure');
-            figureElement.classList.add('generated-image-container');
-            figureElement.innerHTML = `<img src="${imageUrl}" alt="${task.caption}" class="generated-image"><figcaption>${task.caption}</figcaption>`;
-            loaderElement?.replaceWith(figureElement);
-        } catch (error) {
-            console.error(`Error generating image for prompt "${task.prompt}":`, error);
-            if (loaderElement) {
-                loaderElement.innerHTML = `<p class="error">Failed to generate image for: <em>${task.caption}</em></p>`;
-                loaderElement.classList.remove('loading');
-                loaderElement.classList.add('error-state');
+        while (attempts < maxAttempts && !success) {
+            try {
+                // Short cooldown between attempts if not first attempt
+                if (attempts > 0) {
+                    await new Promise(r => setTimeout(r, attempts * 3000));
+                }
+
+                const response = await ai.models.generateImages({
+                    model: 'imagen-4.0-generate-001',
+                    prompt: task.prompt,
+                    config: { 
+                        numberOfImages: 1, 
+                        outputMimeType: 'image/jpeg', 
+                        aspectRatio: '16:9' 
+                    },
+                });
+                
+                const base64ImageBytes = response.generatedImages[0].image.imageBytes;
+                if (!base64ImageBytes) throw new Error("API did not return image data.");
+
+                const imageUrl = `data:image/jpeg;base64,${base64ImageBytes}`;
+                const figureElement = document.createElement('figure');
+                figureElement.classList.add('generated-image-container');
+                figureElement.innerHTML = `<img src="${imageUrl}" alt="${task.caption}" class="generated-image"><figcaption>${task.caption}</figcaption>`;
+                loaderElement?.replaceWith(figureElement);
+                success = true;
+
+                // Brief cooldown after success before next image
+                await new Promise(r => setTimeout(r, 500));
+
+            } catch (error: any) {
+                attempts++;
+                const isRateLimit = error.message?.includes('429') || error.status === 'RESOURCE_EXHAUSTED';
+                
+                if (isRateLimit) {
+                    console.warn(`Rate limit hit (429) for image ${i}. Attempt ${attempts}/${maxAttempts}. Retrying...`);
+                } else {
+                    console.error(`Error generating image ${i}:`, error);
+                    break; // Non-retryable error
+                }
             }
         }
-    });
 
-    await Promise.all(imagePromises);
+        if (!success && loaderElement) {
+            loaderElement.innerHTML = `
+                <div class="quota-error-msg">
+                    <p class="error">Quota Limit Reached (429)</p>
+                    <p style="font-size: 0.85rem; opacity: 0.8;">Could not generate ${task.type}: <em>${task.caption}</em>. Try waiting 60s and regenerating.</p>
+                </div>
+            `;
+            loaderElement.classList.remove('loading');
+            loaderElement.classList.add('error-state');
+        }
+    }
 }
 
 function countSyllables(word: string): number {
