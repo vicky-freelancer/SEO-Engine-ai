@@ -278,7 +278,8 @@ function calculateReadability(text: string): number {
     const words = text.split(/\s+/).filter(w => w.length > 0).length;
     const sentences = (text.match(/[.!?]+/g) || []).length || 1;
     const syllables = text.split(/\s+/).reduce((acc, w) => acc + (w.match(/[aeiouy]+/gi)?.length || 1), 0);
-    return 0.39 * (words / sentences) + 11.8 * (syllables / words) - 15.59;
+    const score = 0.39 * (words / sentences) + 11.8 * (syllables / words) - 15.59;
+    return Math.max(0, score);
 }
 
 function calculateSeoScore(text: string, html: string, formData: FormData): number {
@@ -302,7 +303,11 @@ kBtns.forEach(b => b.addEventListener('click', async () => {
     if (!kw) { alert("Enter Primary Keyword first."); return; }
     
     btn.disabled = true;
-    btn.innerHTML = '<div class="spinner-small"></div>';
+    const btnText = btn.querySelector('.btn-text') as HTMLSpanElement;
+    const spinner = btn.querySelector('.spinner-small') as HTMLDivElement;
+    
+    btnText.classList.add('hidden');
+    spinner.classList.remove('hidden');
 
     try {
         const res = await ai.models.generateContent({
@@ -315,7 +320,8 @@ kBtns.forEach(b => b.addEventListener('click', async () => {
         console.error(e);
     } finally {
         btn.disabled = false;
-        btn.textContent = "Generate";
+        btnText.classList.remove('hidden');
+        spinner.classList.add('hidden');
     }
 }));
 
@@ -323,8 +329,14 @@ kBtns.forEach(b => b.addEventListener('click', async () => {
 analyzeNlpBtn.addEventListener('click', async () => {
     const kw = primaryKeywordInput.value.trim();
     if (!kw) return;
+    
     analyzeNlpBtn.disabled = true;
-    analyzeNlpBtn.textContent = "Analyzing Entities...";
+    const btnText = analyzeNlpBtn.querySelector('.btn-text') as HTMLSpanElement;
+    const spinner = analyzeNlpBtn.querySelector('.spinner-small') as HTMLDivElement;
+    
+    btnText.textContent = "Analyzing...";
+    spinner.classList.remove('hidden');
+
     try {
         const res = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
@@ -333,7 +345,8 @@ analyzeNlpBtn.addEventListener('click', async () => {
         nlpEntitiesInput.value = res.text;
     } finally {
         analyzeNlpBtn.disabled = false;
-        analyzeNlpBtn.textContent = "Analyze & Suggest";
+        btnText.textContent = "Analyze & Suggest";
+        spinner.classList.add('hidden');
     }
 });
 
