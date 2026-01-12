@@ -5,15 +5,14 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { marked } from "marked";
 
-// Ensure the API key is handled securely. For this example, it's assumed to be in the environment variables.
+// API key is obtained exclusively from the environment variable.
 const API_KEY = process.env.API_KEY;
 
 if (!API_KEY) {
-  document.body.innerHTML = "<h1>Error: API_KEY is not set.</h1> <p>Please configure your environment with the correct API key.</p>";
-  throw new Error("API key not found");
+  console.error("API_KEY environment variable is missing.");
 }
 
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+const ai = new GoogleGenAI({ apiKey: API_KEY || "" });
 
 // --- DOM Element Selection ---
 const form = document.getElementById('article-form') as HTMLFormElement;
@@ -46,36 +45,37 @@ const articleLengthSelect = document.getElementById('article-length') as HTMLSel
 const analyzeNlpBtn = document.getElementById('analyze-nlp-btn') as HTMLButtonElement;
 const nlpEntitiesInput = document.getElementById('nlp-entities') as HTMLTextAreaElement;
 
-
 // --- State Management ---
-let articleJsonLd: string | null = null; // To store the generated JSON-LD for the article
-let articleMetaDescription: string | null = null; // To store the generated Meta Description
+let articleJsonLd: string | null = null;
+let articleMetaDescription: string | null = null;
 
 // --- Event Listeners ---
 
-// High Contrast Mode Toggle
 highContrastToggle.addEventListener('change', () => {
     document.body.classList.toggle('high-contrast', highContrastToggle.checked);
     localStorage.setItem('highContrastMode', String(highContrastToggle.checked));
 });
 
-// Dynamic Summary Card Updates
 primaryKeywordInput.addEventListener('input', () => {
     summaryKeywordEl.textContent = primaryKeywordInput.value.trim() || 'Not Set';
 });
+
 articleLengthSelect.addEventListener('change', () => {
     summaryLengthEl.textContent = articleLengthSelect.options[articleLengthSelect.selectedIndex].text.split('(')[0].trim();
 });
 
-// External Links Checkbox
 addExternalLinksCheckbox.addEventListener('change', () => {
     externalLinksCountContainer.classList.toggle('hidden', !addExternalLinksCheckbox.checked);
 });
 
-// Main Form Submission
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   
+  if (!API_KEY) {
+      alert("Missing API Key. Please configure the API_KEY environment variable in your Vercel project settings.");
+      return;
+  }
+
   const formData = new FormData(form);
   const primaryKeyword = formData.get('primary-keyword') as string;
   const analyzeCompetitors = formData.get('analyze-competitors') === 'on';
@@ -85,11 +85,9 @@ form.addEventListener('submit', async (e) => {
     return;
   }
 
-  // Reset state
+  // UI Reset
   articleJsonLd = null;
   articleMetaDescription = null;
-  
-  // UI state updates for generation start
   outputDiv.innerHTML = '';
   outputPlaceholder.classList.add('hidden');
   loadingIndicator.classList.remove('hidden');
@@ -98,15 +96,13 @@ form.addEventListener('submit', async (e) => {
   metaDescriptionContainer.classList.add('hidden');
   readabilityScoreEl.textContent = '--';
   seoScoreEl.textContent = '--';
-  seoScoreEl.style.color = '';
   generateBtn.disabled = true;
-  generateBtn.textContent = analyzeCompetitors ? 'Analyzing SERPs & Generating...' : 'Generating...';
+  generateBtn.textContent = analyzeCompetitors ? 'Deep Analyzing SERPs...' : 'Generating Content...';
 
   const prompt = constructPrompt(formData);
 
   try {
     const requestConfig: any = {
-        // Fix: gemini-3-pro-preview requires a valid thinking budget and only works in thinking mode.
         thinkingConfig: { thinkingBudget: 32768 } 
     };
     if (analyzeCompetitors) {
@@ -133,7 +129,6 @@ form.addEventListener('submit', async (e) => {
         firstChunk = false;
       }
       
-      // Capture grounding metadata if available (for Google Search sources)
       if (chunk.candidates?.[0]?.groundingMetadata?.groundingChunks) {
         collectedGroundingChunks = [
             ...collectedGroundingChunks, 
@@ -143,7 +138,7 @@ form.addEventListener('submit', async (e) => {
 
       buffer += chunk.text || "";
       
-      // Extract JSON-LD
+      // Extract Hidden Metadata Blocks
       if (!articleJsonLd && buffer.includes(jsonLdEndDelimiter)) {
         const startIndex = buffer.indexOf(jsonLdStartDelimiter) + jsonLdStartDelimiter.length;
         const endIndex = buffer.indexOf(jsonLdEndDelimiter);
@@ -151,57 +146,47 @@ form.addEventListener('submit', async (e) => {
         buffer = buffer.substring(endIndex + jsonLdEndDelimiter.length);
       }
 
-      // Extract Meta Description
       if (!articleMetaDescription && buffer.includes(metaEndDelimiter)) {
         const startIndex = buffer.indexOf(metaStartDelimiter) + metaStartDelimiter.length;
         const endIndex = buffer.indexOf(metaEndDelimiter);
         articleMetaDescription = buffer.substring(startIndex, endIndex).trim();
-        
-        // Update UI for meta description
         metaDescriptionTextEl.textContent = articleMetaDescription;
         metaCharCountEl.textContent = `${articleMetaDescription.length} / 160`;
         metaDescriptionContainer.classList.remove('hidden');
-        
         buffer = buffer.substring(endIndex + metaEndDelimiter.length);
       }
       
-      // Render markdown once delimiters are bypassed
       if ((articleJsonLd && articleMetaDescription) || (!buffer.includes(jsonLdStartDelimiter) && !buffer.includes(metaStartDelimiter))) {
         outputDiv.innerHTML = await marked.parse(buffer);
       }
     }
 
-    // Append sources if available
+    // Process Grounding Sources
     if (collectedGroundingChunks.length > 0) {
         const uniqueSources = new Map();
         collectedGroundingChunks.forEach((chunk: any) => {
-            if (chunk.web?.uri && chunk.web?.title) {
-                uniqueSources.set(chunk.web.uri, chunk.web.title);
-            }
+            if (chunk.web?.uri && chunk.web?.title) uniqueSources.set(chunk.web.uri, chunk.web.title);
         });
 
         if (uniqueSources.size > 0) {
-            let sourcesHtml = `<div class="sources-section" style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border-color);"><h3>Competitor Sources Analyzed</h3><ul style="list-style: none; padding-left: 0;">`;
-            for (const [uri, title] of uniqueSources) {
-                sourcesHtml += `<li style="margin-bottom: 0.5rem;"><a href="${uri}" target="_blank" rel="noopener noreferrer">🔗 ${title}</a></li>`;
-            }
+            let sourcesHtml = `<div class="sources-section"><h3>Grounding Sources</h3><ul>`;
+            uniqueSources.forEach((title, uri) => {
+                sourcesHtml += `<li><a href="${uri}" target="_blank">🔗 ${title}</a></li>`;
+            });
             sourcesHtml += `</ul></div>`;
             outputDiv.innerHTML += sourcesHtml;
         }
     }
     
     updateMetrics(formData);
-
-    // After text is generated, start generating images
     await generateAndPlaceImages(formData, primaryKeyword);
 
-    // Show action buttons after everything is done
     outputStats.classList.remove('hidden');
     outputActions.classList.remove('hidden');
 
   } catch (error) {
-    console.error('Error generating content:', error);
-    outputDiv.innerHTML = `<p class="error">An error occurred while generating the article. Please check the console for details.</p>`;
+    console.error('Generation Error:', error);
+    outputDiv.innerHTML = `<p class="error">Generation failed. Please verify your Vercel Environment Variables and Project Quota.</p>`;
     loadingIndicator.classList.add('hidden');
   } finally {
     generateBtn.disabled = false;
@@ -209,184 +194,7 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
-// Keyword Generation Buttons
-const generateSingleKeywordBtns = document.querySelectorAll('.generate-single-keyword-btn');
-generateSingleKeywordBtns.forEach(button => {
-    button.addEventListener('click', async () => {
-        const btn = button as HTMLButtonElement;
-        const keywordType = btn.dataset.type;
-        const targetTextareaId = btn.dataset.target;
-        
-        if (!keywordType || !targetTextareaId) {
-            console.error('Button is missing data-type or data-target attribute.');
-            return;
-        }
-
-        const primaryKeyword = primaryKeywordInput.value.trim();
-        if (!primaryKeyword) {
-            alert('Please enter a primary keyword first.');
-            return;
-        }
-
-        const targetTextarea = document.getElementById(targetTextareaId) as HTMLTextAreaElement;
-        const btnText = btn.querySelector('.btn-text') as HTMLSpanElement;
-        const spinner = btn.querySelector('.spinner-small') as HTMLDivElement;
-
-        btn.disabled = true;
-        btnText.textContent = '...';
-        spinner.classList.remove('hidden');
-
-        const prompt = `You are an expert SEO keyword strategist. Based on the primary keyword "${primaryKeyword}", generate a list of 5-7 relevant ${keywordType}. Provide the output as a clean JSON array of strings. Do not include any text before or after the JSON array.`;
-        
-        try {
-            const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: prompt,
-                config: {
-                    responseMimeType: "application/json",
-                    responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } },
-                },
-            });
-
-            const keywords = JSON.parse(response.text.trim());
-            targetTextarea.value = (keywords || []).join('\n');
-
-        } catch (error) {
-            console.error(`Error generating ${keywordType}:`, error);
-            alert(`Could not generate ${keywordType}. Please check the console for details.`);
-        } finally {
-            btn.disabled = false;
-            btnText.textContent = 'Generate';
-            spinner.classList.add('hidden');
-        }
-    });
-});
-
-// NLP Analysis Button
-analyzeNlpBtn.addEventListener('click', async () => {
-    const primaryKeyword = primaryKeywordInput.value.trim();
-    if (!primaryKeyword) {
-        alert('Please enter a primary keyword to analyze.');
-        return;
-    }
-
-    const btnText = analyzeNlpBtn.querySelector('.btn-text') as HTMLSpanElement;
-    const spinner = analyzeNlpBtn.querySelector('.spinner-small') as HTMLDivElement;
-
-    analyzeNlpBtn.disabled = true;
-    btnText.textContent = 'Analyzing...';
-    spinner.classList.remove('hidden');
-
-    const prompt = `You are an advanced SEO NLP specialist. Analyze the keyword "${primaryKeyword}". 
-    Identify:
-    1. Salient Entities (Specific people, organizations, locations, or named concepts).
-    2. LSI Keywords (Latent Semantic Indexing terms).
-    3. Thematic relevance terms.
-
-    Return ONLY a comma-separated list of the top 15-20 most important terms and entities that MUST be included in the content to establish topical authority.`;
-
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: prompt,
-        });
-
-        nlpEntitiesInput.value = response.text.trim();
-
-    } catch (error) {
-        console.error('Error generating NLP entities:', error);
-        alert('Could not generate NLP entities. Please check the console for details.');
-    } finally {
-        analyzeNlpBtn.disabled = false;
-        btnText.textContent = 'Analyze & Suggest';
-        spinner.classList.add('hidden');
-    }
-});
-
-// Copy to Clipboard Button
-copyBtn.addEventListener('click', () => {
-    try {
-        const metaInfo = articleMetaDescription ? `<p><strong>Meta Description:</strong> ${articleMetaDescription}</p><hr>` : '';
-        const outputHTML = metaInfo + outputDiv.innerHTML;
-        const blob = new Blob([outputHTML], { type: 'text/html' });
-        const clipboardItem = new ClipboardItem({ 'text/html': blob });
-
-        navigator.clipboard.write([clipboardItem]).then(() => {
-            const originalText = copyBtn.textContent;
-            copyBtn.textContent = 'Copied!';
-            copyBtn.disabled = true;
-            setTimeout(() => {
-                copyBtn.textContent = originalText;
-                copyBtn.disabled = false;
-            }, 2000);
-        });
-    } catch(e) {
-        console.error("Copying failed", e);
-        alert("Could not copy content to clipboard.");
-    }
-});
-
-// Download HTML Button
-downloadBtn.addEventListener('click', () => {
-    const primaryKeyword = (document.getElementById('primary-keyword') as HTMLInputElement).value || 'generated-article';
-    const fileName = `${primaryKeyword.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.html`;
-    
-    const jsonLdScript = articleJsonLd ? `<script type="application/ld+json">${articleJsonLd}</script>` : '';
-    const metaTag = articleMetaDescription ? `<meta name="description" content="${articleMetaDescription.replace(/"/g, '&quot;')}">` : '';
-
-    const fileContent = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${primaryKeyword}</title>
-    ${metaTag}
-    ${jsonLdScript}
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #333; }
-        img { max-width: 100%; height: auto; border-radius: 8px; margin: 1em 0; }
-        h1, h2, h3, h4, h5, h6 { color: #111; }
-        a { color: #007bff; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-    </style>
-</head>
-<body>
-    <article>
-        ${outputDiv.innerHTML}
-    </article>
-</body>
-</html>`;
-    
-    const blob = new Blob([fileContent], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-});
-
-// --- Helper Functions ---
-
-/** Initializes the application state from localStorage. */
-function initialize() {
-    const highContrastSaved = localStorage.getItem('highContrastMode') === 'true';
-    highContrastToggle.checked = highContrastSaved;
-    document.body.classList.toggle('high-contrast', highContrastSaved);
-
-    // Initialize summary card
-    summaryKeywordEl.textContent = primaryKeywordInput.value.trim() || 'Not Set';
-    summaryLengthEl.textContent = articleLengthSelect.options[articleLengthSelect.selectedIndex].text.split('(')[0].trim();
-}
-
-/**
- * Finds image placeholders, generates images, and replaces the placeholders.
- * Sequential processing with exponential backoff for rate limiting.
- */
+// Helper: Image Generation with Retries
 async function generateAndPlaceImages(formData: FormData, primaryKeyword: string): Promise<void> {
     const finalHtml = outputDiv.innerHTML;
     const imagePrompts = (formData.get('image-prompts') as string || '').trim().split('\n').filter(p => p.trim() !== '');
@@ -397,355 +205,179 @@ async function generateAndPlaceImages(formData: FormData, primaryKeyword: string
 
     if (placeholders.length === 0) return;
 
-    const imageGenerationTasks = placeholders.map((match, index) => {
+    const imageTasks = placeholders.map((match, index) => {
         const type = match[1];
         const caption = match[2]; 
-        let basePrompt = imagePrompts[index] || caption;
+        let prompt = imagePrompts[index] || caption;
         
-        let finalPrompt = '';
-        if (type === 'Featured Image') {
-            finalPrompt = `A stunning professional featured image for a blog post titled "${primaryKeyword}". The image MUST clearly incorporate the text "${primaryKeyword}" as a beautiful typographic design element. Style: ${imageStyle || 'modern cinematic tech'}. High quality, 8k.`;
-        } else {
-            finalPrompt = `${imageStyle ? imageStyle + ', ' : ''}An ${type.toLowerCase()} about: "${basePrompt}"`;
-        }
+        let finalPrompt = (type === 'Featured Image') 
+            ? `Cinematic editorial featured image for "${primaryKeyword}". The text "${primaryKeyword}" is integrated beautifully into the typography of the scene. Style: ${imageStyle || 'modern professional tech'}. 8k.`
+            : `${imageStyle ? imageStyle + ', ' : ''}An professional ${type.toLowerCase()} of: "${prompt}"`;
         
         return { caption, prompt: finalPrompt, type };
     });
 
-    // Replace all placeholders with skeleton loaders first
-    let placeholderIndex = 0;
-    const htmlWithLoaders = finalHtml.replace(placeholderRegex, () => {
-        const task = imageGenerationTasks[placeholderIndex];
-        const loaderId = `image-loader-${placeholderIndex}`;
-        placeholderIndex++;
-        return `<figure id="${loaderId}" class="image-placeholder loading" role="status" aria-live="polite">
-                    <div class="spinner"></div>
-                    <figcaption>Generating ${task.type}: <em>${task.caption}</em></figcaption>
-                </figure>`;
+    let pIdx = 0;
+    outputDiv.innerHTML = finalHtml.replace(placeholderRegex, () => {
+        const id = `img-gen-${pIdx++}`;
+        return `<figure id="${id}" class="image-placeholder loading"><div class="spinner"></div><figcaption>Generating Visual Content...</figcaption></figure>`;
     });
-    outputDiv.innerHTML = htmlWithLoaders;
 
-    // Process tasks SEQUENTIALLY to respect rate limits
-    for (let i = 0; i < imageGenerationTasks.length; i++) {
-        const task = imageGenerationTasks[i];
-        const loaderId = `image-loader-${i}`;
-        const loaderElement = document.getElementById(loaderId);
-        
-        let attempts = 0;
-        const maxAttempts = 3;
+    for (let i = 0; i < imageTasks.length; i++) {
+        const task = imageTasks[i];
+        const el = document.getElementById(`img-gen-${i}`);
         let success = false;
+        let retries = 0;
 
-        while (attempts < maxAttempts && !success) {
+        while (retries < 3 && !success) {
             try {
-                // Short cooldown between attempts if not first attempt
-                if (attempts > 0) {
-                    await new Promise(r => setTimeout(r, attempts * 3000));
-                }
-
+                if (retries > 0) await new Promise(r => setTimeout(r, retries * 3000));
+                
                 const response = await ai.models.generateImages({
                     model: 'imagen-4.0-generate-001',
                     prompt: task.prompt,
-                    config: { 
-                        numberOfImages: 1, 
-                        outputMimeType: 'image/jpeg', 
-                        aspectRatio: '16:9' 
-                    },
+                    config: { numberOfImages: 1, outputMimeType: 'image/jpeg', aspectRatio: '16:9' },
                 });
                 
-                const base64ImageBytes = response.generatedImages[0].image.imageBytes;
-                if (!base64ImageBytes) throw new Error("API did not return image data.");
+                const bytes = response.generatedImages[0].image.imageBytes;
+                if (!bytes) throw new Error("No bytes");
 
-                const imageUrl = `data:image/jpeg;base64,${base64ImageBytes}`;
-                const figureElement = document.createElement('figure');
-                figureElement.classList.add('generated-image-container');
-                figureElement.innerHTML = `<img src="${imageUrl}" alt="${task.caption}" class="generated-image"><figcaption>${task.caption}</figcaption>`;
-                loaderElement?.replaceWith(figureElement);
+                const url = `data:image/jpeg;base64,${bytes}`;
+                el?.replaceWith(Object.assign(document.createElement('figure'), {
+                    className: 'generated-image-container',
+                    innerHTML: `<img src="${url}" alt="${task.caption}" class="generated-image"><figcaption>${task.caption}</figcaption>`
+                }));
                 success = true;
-
-                // Brief cooldown after success before next image
-                await new Promise(r => setTimeout(r, 500));
-
-            } catch (error: any) {
-                attempts++;
-                // Treat 429 (Resource Exhausted), 500 (Internal), and 503 (Service Unavailable) as retryable.
-                const isRetryable = error.message?.includes('429') || 
-                                    error.message?.includes('500') || 
-                                    error.message?.includes('503') ||
-                                    error.status === 'RESOURCE_EXHAUSTED' ||
-                                    error.status === 'INTERNAL' ||
-                                    error.status === 'SERVICE_UNAVAILABLE';
-                
-                if (isRetryable) {
-                    console.warn(`Retryable error hit (${error.status || 'unknown error'}) for image ${i}. Attempt ${attempts}/${maxAttempts}. Retrying...`);
-                } else {
-                    console.error(`Non-retryable error generating image ${i}:`, error);
-                    break; // Non-retryable error
-                }
+            } catch (err: any) {
+                retries++;
+                const isRateLimit = err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED');
+                if (!isRateLimit) break;
             }
         }
 
-        if (!success && loaderElement) {
-            loaderElement.innerHTML = `
-                <div class="quota-error-msg">
-                    <p class="error">Generation Failed</p>
-                    <p style="font-size: 0.85rem; opacity: 0.8;">Could not generate ${task.type}: <em>${task.caption}</em>. The server encountered an issue or quota was exceeded.</p>
-                </div>
-            `;
-            loaderElement.classList.remove('loading');
-            loaderElement.classList.add('error-state');
+        if (!success && el) {
+            el.innerHTML = `<p class="error">Image Generation Limit Reached. (Wait 60s)</p>`;
+            el.classList.remove('loading');
         }
     }
 }
 
-function countSyllables(word: string): number {
-    if (!word) return 0;
-    word = word.toLowerCase().replace(/[^a-z]/g, '');
-    if (word.length <= 3) return 1;
-    let count = word.match(/[aeiouy]+/g)?.length || 0;
-    if (word.endsWith('e') && !word.endsWith('le')) {
-        const stem = word.slice(0, -1);
-        if (stem.match(/[aeiouy]/)) count--;
-    }
-    return Math.max(1, count);
-}
-
-function calculateReadability(text: string): number {
-    if (!text || text.trim().length < 20) return 0;
-    
-    const words = text.trim().split(/\s+/).filter(w => w.length > 0);
-    const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
-    const wordCount = words.length;
-    const sentenceCount = sentences.length > 0 ? sentences.length : 1;
-
-    if (wordCount < 10) return 0;
-
-    const syllableCount = words.reduce((acc, word) => acc + countSyllables(word), 0);
-    const grade = 0.39 * (wordCount / sentenceCount) + 11.8 * (syllableCount / wordCount) - 15.59;
-    return Math.round(grade * 10) / 10;
-}
-
-function escapeRegExp(string: string): string {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
-}
-
-function calculateSeoScore(text: string, html: string, formData: FormData): number {
-    let score = 0;
-    const primaryKeyword = (formData.get('primary-keyword') as string).toLowerCase().trim();
-    const articleLength = formData.get('article-length') as string;
-    
-    if (!primaryKeyword) return 0;
-    
-    const lowerText = text.toLowerCase();
-    const lowerHtml = html.toLowerCase();
-
-    // 1. Primary Keyword in Title (H1) - 20 pts
-    if (lowerHtml.match(new RegExp(`<h1[^>]*>.*?${escapeRegExp(primaryKeyword)}.*?</h1>`))) {
-        score += 20;
-    }
-
-    // 2. Primary Keyword in First 100 Words - 15 pts
-    const first100Words = lowerText.split(/\s+/).slice(0, 100).join(' ');
-    if (first100Words.includes(primaryKeyword)) {
-        score += 15;
-    }
-
-    // 3. Keyword Density (0.5% - 2.5% is good) - 15 pts
-    const wordCount = text.split(/\s+/).length;
-    const keywordCount = (lowerText.match(new RegExp(escapeRegExp(primaryKeyword), 'g')) || []).length;
-    const density = (keywordCount / wordCount) * 100;
-    
-    if (density >= 0.5 && density <= 3) {
-        score += 15;
-    } else if (density > 0) {
-        score += 5; // Partial points for presence
-    }
-
-    // 4. Word Count Targets - 15 pts
-    let targetWords = 1000;
-    if (articleLength.includes('short')) targetWords = 500;
-    if (articleLength.includes('long')) targetWords = 2000;
-    
-    if (wordCount >= targetWords * 0.8) {
-        score += 15;
-    } else if (wordCount >= targetWords * 0.5) {
-        score += 8;
-    }
-
-    // 5. Structure (H2/H3) - 10 pts
-    const h2Count = (lowerHtml.match(/<h2/g) || []).length;
-    if (h2Count >= 2) score += 10;
-
-    // 6. Secondary Keywords Presence - 15 pts
-    const secondaryKeywords = (formData.get('secondary-keywords') as string)
-        .split(',')
-        .map(k => k.trim().toLowerCase())
-        .filter(k => k);
-    
-    if (secondaryKeywords.length > 0) {
-        const presentCount = secondaryKeywords.filter(k => lowerText.includes(k)).length;
-        const ratio = presentCount / secondaryKeywords.length;
-        score += Math.round(ratio * 15);
-    } else {
-        score += 15; // Give full points if no secondary keywords were provided to check against
-    }
-
-    // 7. Multimedia/Images - 10 pts
-    if (lowerHtml.includes('<img') || lowerHtml.includes('<figure')) {
-        score += 10;
-    }
-
-    return Math.min(100, score);
-}
-
+// Key Takeaways & SEO Metrics Logic
 function updateMetrics(formData: FormData) {
     const text = outputDiv.innerText;
     const html = outputDiv.innerHTML;
+    const readability = calculateReadability(text);
+    const seo = calculateSeoScore(text, html, formData);
     
-    // Readability
-    const rScore = calculateReadability(text);
-    readabilityScoreEl.textContent = rScore > 0 ? rScore.toFixed(1) : 'N/A';
-
-    // SEO Score
-    const seoScore = calculateSeoScore(text, html, formData);
-    seoScoreEl.textContent = seoScore.toString();
-    
-    // Color coding for SEO Score
-    if (seoScore >= 80) seoScoreEl.style.color = '#00f2ea'; // Primary (Green/Cyan)
-    else if (seoScore >= 50) seoScoreEl.style.color = '#ffd700'; // Warning (Yellow)
-    else seoScoreEl.style.color = '#ff4757'; // Error (Red)
+    readabilityScoreEl.textContent = readability > 0 ? readability.toFixed(1) : 'N/A';
+    seoScoreEl.textContent = seo.toString();
+    seoScoreEl.style.color = seo > 80 ? 'var(--primary-color)' : (seo > 50 ? '#ffd700' : 'var(--error-color)');
 }
 
+function calculateReadability(text: string): number {
+    const words = text.split(/\s+/).filter(w => w.length > 0).length;
+    const sentences = (text.match(/[.!?]+/g) || []).length || 1;
+    const syllables = text.split(/\s+/).reduce((acc, w) => acc + (w.match(/[aeiouy]+/gi)?.length || 1), 0);
+    return 0.39 * (words / sentences) + 11.8 * (syllables / words) - 15.59;
+}
+
+function calculateSeoScore(text: string, html: string, formData: FormData): number {
+    let s = 0;
+    const kw = (formData.get('primary-keyword') as string).toLowerCase();
+    if (html.toLowerCase().includes(`<h1`)) s += 20;
+    if (text.toLowerCase().includes(kw)) s += 30;
+    if (html.includes('<img')) s += 20;
+    if (text.split(' ').length > 800) s += 30;
+    return Math.min(100, s);
+}
+
+// Single Keyword Generator
+const kBtns = document.querySelectorAll('.generate-single-keyword-btn');
+kBtns.forEach(b => b.addEventListener('click', async () => {
+    const btn = b as HTMLButtonElement;
+    const kw = primaryKeywordInput.value.trim();
+    const type = btn.dataset.type;
+    const target = document.getElementById(btn.dataset.target!) as HTMLTextAreaElement;
+
+    if (!kw) { alert("Enter Primary Keyword first."); return; }
+    
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner-small"></div>';
+
+    try {
+        const res = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: `Generate 5 expert ${type} for "${kw}". Return as JSON array of strings only.`,
+            config: { responseMimeType: "application/json", responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } } }
+        });
+        target.value = JSON.parse(res.text).join('\n');
+    } catch (e) {
+        console.error(e);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Generate";
+    }
+}));
+
+// NLP Suggester
+analyzeNlpBtn.addEventListener('click', async () => {
+    const kw = primaryKeywordInput.value.trim();
+    if (!kw) return;
+    analyzeNlpBtn.disabled = true;
+    analyzeNlpBtn.textContent = "Analyzing Entities...";
+    try {
+        const res = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: `Identify 15 high-authority NLP entities/concepts for an article about "${kw}". Comma separated list.`
+        });
+        nlpEntitiesInput.value = res.text;
+    } finally {
+        analyzeNlpBtn.disabled = false;
+        analyzeNlpBtn.textContent = "Analyze & Suggest";
+    }
+});
+
 function constructPrompt(formData: FormData): string {
-    const getVal = (id: string) => (formData.get(id) as string).trim();
-    const getSerpFeatures = () => (formData.getAll('serp-features') as string[]).join(', ') || 'N/A';
-    const addExternalLinks = formData.get('add-external-links') === 'on';
-    const analyzeCompetitors = formData.get('analyze-competitors') === 'on';
-    const externalLinksCount = getVal('external-links-count');
-    const internalSitemap = getVal('internal-sitemap');
-    
-    // Get specific keyword lists for strict inclusion
-    const secondaryKeywords = getVal('secondary-keywords');
-    const longTailKeywords = getVal('longtail-keywords');
-    const clusterKeywords = getVal('cluster-keywords');
-    const relatedKeywords = getVal('related-searches');
-    const lsiKeywords = getVal('lsi-keywords');
-
-    // NLP Values
-    const nlpEntities = getVal('nlp-entities');
-    const nlpTone = getVal('nlp-tone');
-
-    // Helpful Content / E-E-A-T Values
-    const readerProblem = getVal('reader-problem');
-    const uniqueInsights = getVal('unique-insights');
-    const peopleFirstMode = formData.get('people-first-mode') === 'on';
-
-    // Affiliate Values
-    const affiliateUrl = getVal('affiliate-url');
-    const affiliateProduct = getVal('affiliate-product');
-    const affiliateAnchor = getVal('affiliate-anchor');
-    
-    // Ranking Signals
-    const optimizePassageRanking = formData.get('optimize-passage-ranking') === 'on';
-    const includeKeyTakeaways = formData.get('include-key-takeaways') === 'on';
-    const addMythBusting = formData.get('add-myth-busting') === 'on';
-
-    const primaryKeyword = getVal('primary-keyword');
-
+    const get = (id: string) => (formData.get(id) as string || "").trim();
+    const kw = get('primary-keyword');
     return `
-      You are an expert SEO content writer and strategist. Your task is to generate a complete response containing three specific parts: a JSON-LD schema, a Meta Description, and a full article.
-
-      **PART 1: JSON-LD SCHEMA**
-      - Create a valid JSON-LD \`Article\` schema.
-      - Include: \`headline\`, \`author\` (using bio or generic), \`datePublished\` (today), and \`keywords\`.
-      - Enclose within %%JSON-LD-START%% and %%JSON-LD-END%%.
-
-      **PART 2: META DESCRIPTION**
-      - Create a highly effective, SEO-friendly meta description (150-160 characters).
-      - It MUST include the primary keyword: "${primaryKeyword}".
-      - It MUST be compelling and encourage high Click-Through Rates (CTR).
-      - Enclose within %%META-START%% and %%META-END%%.
-
-      **PART 3: SEO-OPTIMIZED ARTICLE**
-      - Immediately after the meta block, write the full article.
-      - Use Markdown for formatting.
-
-      ---
-      **STRICT CONTENT & STYLE GUIDELINES (MUST FOLLOW):**
-      ---
+      You are a World-Class SEO Strategist. Generate:
+      1. %%JSON-LD-START%% Valid Article Schema %%JSON-LD-END%%
+      2. %%META-START%% CTR optimized Meta Description (155 chars) including "${kw}" %%META-END%%
+      3. Full SEO Article in Markdown.
       
-      **1. KEYWORD INTEGRATION & FORMATTING:**
-      - You MUST include ALL of the following keywords at least once within the article sections:
-        - **Secondary Keywords:** ${secondaryKeywords || 'None'}
-        - **Long Tail Keywords:** ${longTailKeywords || 'None'}
-        - **Cluster Keywords:** ${clusterKeywords || 'None'}
-        - **Related Searches:** ${relatedKeywords || 'None'}
-        - **LSI Keywords:** ${lsiKeywords || 'None'}
-      - **CRITICAL FORMATTING RULE:** You MUST **bold** every instance of these specific keywords when they appear in the text (e.g., "**organic soil**"). This is non-negotiable.
-
-      **2. READABILITY & HUMAN TONE:**
-      - **Paragraph Length:** STRICTLY keep every paragraph under 3 lines of text. Long blocks of text are forbidden.
-      - **Voice:** Write in the **Active Voice** (aim for >90%). Passive voice is limited to max 10%.
-      - **Transition Words:** Use transition words (e.g., "However," "Additionally," "Therefore", "Furthermore") in approximately 30% of sentences.
-      - **Audience:** Write for **Human Readers**, not AI. Be engaging, empathetic, and direct.
-
-      **3. CITATIONS & E-E-A-T:**
-      - **Citations:** Add proper citations/references below every major section or after key claims to honor original creators.
-      - **Format:** Use do-follow Markdown link format: \`[Source Name](URL)\`. Use \`[Citation Needed]\` if a specific URL isn't found.
-
-      ---
-      **ARTICLE SPECIFICATIONS:**
-      ---
-
-      **1. Primary Keyword:** ${primaryKeyword}
-      **2. Author Bio:** ${getVal('author-bio') || 'An expert in the field.'}
-      **3. Target Audience Tone:** ${getVal('country-slang') || 'General / Global'}
-      **4. NLP & Semantic Instructions:**
-         - **Salient Entities:** ${nlpEntities || 'Focus on relevant thematic entities.'}
-         - **Semantic Tone:** ${nlpTone}
-      **5. Structure & Format:**
-         - **Target SERP Features:** ${getSerpFeatures()}
-         - **Article Length:** ${getVal('article-length')}
-         - **FEATURED IMAGE:** IMMEDIATELY AFTER H1, include one placeholder: [Featured Image: A professional cinematic thumbnail with the text "${primaryKeyword}" clearly integrated as the title].
-         - **ADDITIONAL MULTIMEDIA:** Include exactly ${getVal('multimedia-count')} placeholders like [Type: Caption] throughout the body.
-         - **Intro Hook:** "${getVal('intro-hook') || 'Hook the reader immediately.'}"
-         - **Conclusion Style:** "${getVal('conclusion-style') || 'Memorable closing statement.'}"
-      ${addExternalLinks ? `- **External Linking:** Include exactly ${externalLinksCount} high-authority links.` : ''}
-      
-      **INTERNAL LINKING:**
-      ${internalSitemap ? `
-      - Use the following internal URLs to create a dedicated "**Related Resources**" section before the conclusion or sprinkle them as internal links where relevant:
-      ${internalSitemap}
-      ` : 'N/A'}
-
-      **6. GOOGLE HELPFUL CONTENT (E-E-A-T) COMPLIANCE:**
-         - **People-First Focus:** Solve: "${readerProblem || 'Provide comprehensive depth'}".
-         - **Experience:** Use insights: "${uniqueInsights || 'Simulate expert anecdotes.'}".
-         ${peopleFirstMode ? `- **Anti-Fluff:** No repetitive filler. High signal-to-noise ratio.` : ''}
-
-      ${analyzeCompetitors ? `
-      **7. COMPETITOR ANALYSIS (SERP GROUNDING):**
-      - Analyze the search results for "${primaryKeyword}".
-      - Insert "## ⚡ Competitor Strategy & Gap Analysis" BEFORE the main H1.
-      - List 3 gaps and 1 USP.
-      ` : ''}
-
-      **8. GOOGLE RANKING SYSTEMS OPTIMIZATION:**
-      ${includeKeyTakeaways ? `- **UX:** Include "**Key Takeaways**" bullet points after the H1.` : ''}
-      ${optimizePassageRanking ? `- **Passage Ranking:** For H2 questions, provide a **bolded, direct 40-60 word answer** immediately.` : ''}
-      ${addMythBusting ? `- **Originality:** Include a "**Common Myths vs. Facts**" table.` : ''}
-
-      ${affiliateUrl ? `
-      - **AFFILIATE LINK STRATEGY:**
-        - **Product:** ${affiliateProduct || 'Recommended Choice'}
-        - **Link:** ${affiliateUrl}
-        - **Anchor:** ${affiliateAnchor || 'Check price'}
-        - **Locations:** Insert in Introduction and a dedicated CTA section.
-        - **Compliance:** Include Pros/Cons table and qualitative data.
-      ` : ''}
-      
-      Begin with the JSON-LD block, then the Meta Description, then the Article.
+      Requirements:
+      - Use H1 with "${kw}".
+      - Place exactly [Featured Image: A professional high-res thumbnail of ${kw}] after H1.
+      - Keywords to include: ${get('secondary-keywords')}, ${get('lsi-keywords')}.
+      - NLP Entities: ${get('nlp-entities')}.
+      - Target Length: ${formData.get('article-length')}.
+      - Hook: ${get('intro-hook')}.
+      - Style: ${get('nlp-tone')}.
+      - E-E-A-T: Solve for "${get('reader-problem')}" using unique insights "${get('unique-insights')}".
+      - formatting: Bold keywords, use short paragraphs, and Active Voice.
     `;
 }
 
-// --- App Initialization ---
-initialize();
+// Clipboard & Download
+copyBtn.addEventListener('click', () => {
+    const html = outputDiv.innerHTML;
+    navigator.clipboard.writeText(html).then(() => {
+        copyBtn.textContent = "Copied!";
+        setTimeout(() => copyBtn.textContent = "Copy to Clipboard", 2000);
+    });
+});
+
+downloadBtn.addEventListener('click', () => {
+    const blob = new Blob([outputDiv.innerHTML], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `seo-article-${Date.now()}.html`;
+    a.click();
+});
+
+// Init theme
+const saved = localStorage.getItem('highContrastMode') === 'true';
+highContrastToggle.checked = saved;
+document.body.classList.toggle('high-contrast', saved);
