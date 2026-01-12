@@ -467,12 +467,18 @@ async function generateAndPlaceImages(formData: FormData, primaryKeyword: string
 
             } catch (error: any) {
                 attempts++;
-                const isRateLimit = error.message?.includes('429') || error.status === 'RESOURCE_EXHAUSTED';
+                // Treat 429 (Resource Exhausted), 500 (Internal), and 503 (Service Unavailable) as retryable.
+                const isRetryable = error.message?.includes('429') || 
+                                    error.message?.includes('500') || 
+                                    error.message?.includes('503') ||
+                                    error.status === 'RESOURCE_EXHAUSTED' ||
+                                    error.status === 'INTERNAL' ||
+                                    error.status === 'SERVICE_UNAVAILABLE';
                 
-                if (isRateLimit) {
-                    console.warn(`Rate limit hit (429) for image ${i}. Attempt ${attempts}/${maxAttempts}. Retrying...`);
+                if (isRetryable) {
+                    console.warn(`Retryable error hit (${error.status || 'unknown error'}) for image ${i}. Attempt ${attempts}/${maxAttempts}. Retrying...`);
                 } else {
-                    console.error(`Error generating image ${i}:`, error);
+                    console.error(`Non-retryable error generating image ${i}:`, error);
                     break; // Non-retryable error
                 }
             }
@@ -481,8 +487,8 @@ async function generateAndPlaceImages(formData: FormData, primaryKeyword: string
         if (!success && loaderElement) {
             loaderElement.innerHTML = `
                 <div class="quota-error-msg">
-                    <p class="error">Quota Limit Reached (429)</p>
-                    <p style="font-size: 0.85rem; opacity: 0.8;">Could not generate ${task.type}: <em>${task.caption}</em>. Try waiting 60s and regenerating.</p>
+                    <p class="error">Generation Failed</p>
+                    <p style="font-size: 0.85rem; opacity: 0.8;">Could not generate ${task.type}: <em>${task.caption}</em>. The server encountered an issue or quota was exceeded.</p>
                 </div>
             `;
             loaderElement.classList.remove('loading');
