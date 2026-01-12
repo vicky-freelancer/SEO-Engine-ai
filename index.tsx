@@ -353,22 +353,88 @@ analyzeNlpBtn.addEventListener('click', async () => {
 function constructPrompt(formData: FormData): string {
     const get = (id: string) => (formData.get(id) as string || "").trim();
     const kw = get('primary-keyword');
+    const countrySlang = get('country-slang');
+    const authorBio = get('author-bio');
+    const externalLinksCount = get('external-links-count');
+    const addExternalLinks = formData.get('add-external-links') === 'on';
+    const internalSitemap = get('internal-sitemap');
+    const readerProblem = get('reader-problem');
+    const uniqueInsights = get('unique-insights');
+    const peopleFirstMode = formData.get('people-first-mode') === 'on';
+    
+    const secondaryKeywords = get('secondary-keywords');
+    const longtailKeywords = get('longtail-keywords');
+    const clusterKeywords = get('cluster-keywords');
+    const relatedSearches = get('related-searches');
+    const lsiKeywords = get('lsi-keywords');
+    
+    const nlpEntities = get('nlp-entities');
+    const nlpTone = get('nlp-tone');
+    
+    const optimizePassageRanking = formData.get('optimize-passage-ranking') === 'on';
+    const includeKeyTakeaways = formData.get('include-key-takeaways') === 'on';
+    const addMythBusting = formData.get('add-myth-busting') === 'on';
+    
+    const affiliateProduct = get('affiliate-product');
+    const affiliateUrl = get('affiliate-url');
+    const affiliateAnchor = get('affiliate-anchor');
+    
+    const multimediaCount = get('multimedia-count');
+    const introHook = get('intro-hook');
+    const conclusionStyle = get('conclusion-style');
+
     return `
-      You are a World-Class SEO Strategist. Generate:
-      1. %%JSON-LD-START%% Valid Article Schema %%JSON-LD-END%%
-      2. %%META-START%% CTR optimized Meta Description (155 chars) including "${kw}" %%META-END%%
-      3. Full SEO Article in Markdown.
+      You are a World-Class SEO Strategist & Professional Content Creator. Your task is to generate a comprehensive, high-authority document in three distinct parts:
       
-      Requirements:
-      - Use H1 with "${kw}".
-      - Place exactly [Featured Image: A professional high-res thumbnail of ${kw}] after H1.
-      - Keywords to include: ${get('secondary-keywords')}, ${get('lsi-keywords')}.
-      - NLP Entities: ${get('nlp-entities')}.
-      - Target Length: ${formData.get('article-length')}.
-      - Hook: ${get('intro-hook')}.
-      - Style: ${get('nlp-tone')}.
-      - E-E-A-T: Solve for "${get('reader-problem')}" using unique insights "${get('unique-insights')}".
-      - formatting: Bold keywords, use short paragraphs, and Active Voice.
+      1. %%JSON-LD-START%%
+         A valid Article JSON-LD schema including the headline, author information, and keywords.
+         %%JSON-LD-END%%
+      
+      2. %%META-START%%
+         A CTR-optimized Meta Description (approx 155 characters) that includes the primary keyword "${kw}".
+         %%META-END%%
+      
+      3. A full SEO-optimized article in Markdown.
+
+      ---
+      ARTICLE SPECIFICATIONS:
+      ---
+      - Primary Focus: "${kw}"
+      ${countrySlang ? `- Target Audience/Slang: Please use local terminology and slang from "${countrySlang}" to make the content feel authentic and native.` : ""}
+      - Author Authority: ${authorBio || "An industry expert."}
+      
+      CONTENT DEPTH & E-E-A-T:
+      - Core Reader Problem: ${readerProblem || "Provide a comprehensive guide."}
+      - Unique Insight/Experience: ${uniqueInsights || "Include expert-level depth and analysis."}
+      ${peopleFirstMode ? "- People-First Filter: STRICTLY avoid generic AI fluff. Focus on actionable advice, utility, and factual accuracy." : ""}
+
+      SEMANTIC OPTIMIZATION:
+      - Include and BOLD these specific keywords where they fit naturally: 
+        Secondary: ${secondaryKeywords}, 
+        Long-tail: ${longtailKeywords}, 
+        Cluster: ${clusterKeywords}, 
+        Related: ${relatedSearches}, 
+        LSI: ${lsiKeywords}.
+      - Salient NLP Entities to cover: ${nlpEntities}.
+      - Semantic Tone: ${nlpTone}.
+
+      STRUCTURE & FORMATTING:
+      - Length: ${get('article-length')}.
+      - Formatting: Use short paragraphs (max 3 sentences), active voice, and bold headers (H1, H2, H3).
+      - Hook: ${introHook || "Start with an engaging introduction."}
+      ${includeKeyTakeaways ? "- Include a 'Key Takeaways' section immediately following the H1." : ""}
+      ${optimizePassageRanking ? "- Optimize H2/H3 sections for Passage Ranking by providing direct, concise answers (40-60 words) to likely user questions." : ""}
+      ${addMythBusting ? "- Include a 'Myths vs. Facts' section to establish unique value." : ""}
+      - Multimedia: Include exactly ${multimediaCount} placeholders like [Featured Image: A professional shot of ${kw}] or [Infographic: Visual breakdown of ${kw}] distributed logically.
+      
+      ${addExternalLinks ? `- External Links: Please find and include exactly ${externalLinksCount} high-authority external citations or references (use placeholder links [Source](URL) if specific URLs aren't known, or use grounded data).` : ""}
+      ${internalSitemap ? `- Internal Linking Strategy: Use the following URLs to suggest relevant internal links: ${internalSitemap}` : ""}
+      
+      ${affiliateUrl ? `- Affiliate Marketing: Strategically integrate a call-to-action for "${affiliateProduct}" using the anchor text "${affiliateAnchor}" pointing to ${affiliateUrl}. Ensure it feels like a natural recommendation.` : ""}
+      
+      - Conclusion: ${conclusionStyle || "Wrap up with a strong call to action."}
+
+      Strictly use the %% delimiters for the metadata blocks.
     `;
 }
 
