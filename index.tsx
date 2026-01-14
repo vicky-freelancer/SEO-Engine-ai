@@ -5,14 +5,8 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { marked } from "marked";
 
-// API key is obtained exclusively from the environment variable.
-const API_KEY = process.env.API_KEY;
-
-if (!API_KEY) {
-  console.error("API_KEY environment variable is missing.");
-}
-
-const ai = new GoogleGenAI({ apiKey: API_KEY || "" });
+// The API key is obtained exclusively from the environment variable process.env.API_KEY.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
 
 // --- DOM Element Selection ---
 const form = document.getElementById('article-form') as HTMLFormElement;
@@ -34,7 +28,7 @@ const metaDescriptionContainer = document.getElementById('meta-description-conta
 const metaDescriptionTextEl = document.getElementById('meta-description-text') as HTMLParagraphElement;
 const metaCharCountEl = document.getElementById('meta-char-count') as HTMLSpanElement;
 
-// New elements for enhanced UI
+// UI Enhancement elements
 const highContrastToggle = document.getElementById('high-contrast-toggle') as HTMLInputElement;
 const summaryKeywordEl = document.getElementById('summary-keyword') as HTMLElement;
 const summaryLengthEl = document.getElementById('summary-length') as HTMLElement;
@@ -71,17 +65,11 @@ addExternalLinksCheckbox.addEventListener('change', () => {
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   
-  if (!API_KEY) {
-      alert("Missing API Key. Please configure the API_KEY environment variable in your Vercel project settings.");
-      return;
-  }
-
   const formData = new FormData(form);
   const primaryKeyword = formData.get('primary-keyword') as string;
   const analyzeCompetitors = formData.get('analyze-competitors') === 'on';
 
   if (!primaryKeyword.trim()) {
-    alert('Please enter a primary keyword.');
     return;
   }
 
@@ -186,7 +174,7 @@ form.addEventListener('submit', async (e) => {
 
   } catch (error) {
     console.error('Generation Error:', error);
-    outputDiv.innerHTML = `<p class="error">Generation failed. Please verify your Vercel Environment Variables and Project Quota.</p>`;
+    outputDiv.innerHTML = `<p class="error">Generation failed. Please verify your system configuration.</p>`;
     loadingIndicator.classList.add('hidden');
   } finally {
     generateBtn.disabled = false;
@@ -194,7 +182,6 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
-// Helper: Image Generation with Retries
 async function generateAndPlaceImages(formData: FormData, primaryKeyword: string): Promise<void> {
     const finalHtml = outputDiv.innerHTML;
     const imagePrompts = (formData.get('image-prompts') as string || '').trim().split('\n').filter(p => p.trim() !== '');
@@ -256,13 +243,12 @@ async function generateAndPlaceImages(formData: FormData, primaryKeyword: string
         }
 
         if (!success && el) {
-            el.innerHTML = `<p class="error">Image Generation Limit Reached. (Wait 60s)</p>`;
+            el.innerHTML = `<p class="error">Image unavailable</p>`;
             el.classList.remove('loading');
         }
     }
 }
 
-// Key Takeaways & SEO Metrics Logic
 function updateMetrics(formData: FormData) {
     const text = outputDiv.innerText;
     const html = outputDiv.innerHTML;
@@ -292,7 +278,6 @@ function calculateSeoScore(text: string, html: string, formData: FormData): numb
     return Math.min(100, s);
 }
 
-// Single Keyword Generator
 const kBtns = document.querySelectorAll('.generate-single-keyword-btn');
 kBtns.forEach(b => b.addEventListener('click', async () => {
     const btn = b as HTMLButtonElement;
@@ -300,7 +285,7 @@ kBtns.forEach(b => b.addEventListener('click', async () => {
     const type = btn.dataset.type;
     const target = document.getElementById(btn.dataset.target!) as HTMLTextAreaElement;
 
-    if (!kw) { alert("Enter Primary Keyword first."); return; }
+    if (!kw) { return; }
     
     btn.disabled = true;
     const btnText = btn.querySelector('.btn-text') as HTMLSpanElement;
@@ -325,7 +310,6 @@ kBtns.forEach(b => b.addEventListener('click', async () => {
     }
 }));
 
-// NLP Suggester
 analyzeNlpBtn.addEventListener('click', async () => {
     const kw = primaryKeywordInput.value.trim();
     if (!kw) return;
@@ -438,7 +422,6 @@ function constructPrompt(formData: FormData): string {
     `;
 }
 
-// Clipboard & Download
 copyBtn.addEventListener('click', () => {
     const html = outputDiv.innerHTML;
     navigator.clipboard.writeText(html).then(() => {
