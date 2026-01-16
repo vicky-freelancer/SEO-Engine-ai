@@ -33,19 +33,13 @@ const articleLengthSelect = document.getElementById('article-length') as HTMLSel
 const analyzeNlpBtn = document.getElementById('analyze-nlp-btn') as HTMLButtonElement;
 const nlpEntitiesInput = document.getElementById('nlp-entities') as HTMLTextAreaElement;
 
-const visualModelSelect = document.getElementById('visual-model') as HTMLSelectElement;
-const proModelAuthDiv = document.getElementById('pro-model-auth') as HTMLDivElement;
-const proQualitySettingsDiv = document.getElementById('pro-quality-settings') as HTMLDivElement;
-const selectApiKeyBtn = document.getElementById('select-api-key-btn') as HTMLButtonElement;
-
 // --- State Management ---
 let articleJsonLd: string | null = null;
 let articleMetaDescription: string | null = null;
 
-// --- Helper Functions ---
-
 /**
  * Translates branded terms into descriptive visual elements to avoid SAFETY finish reasons.
+ * Many models block brand names to avoid trademark issues.
  */
 function translateToVisualPrompt(caption: string): string {
     const brands: Record<string, string> = {
@@ -67,22 +61,6 @@ function translateToVisualPrompt(caption: string): string {
     });
     return refined;
 }
-
-// --- UI Logic for Model Selection ---
-
-visualModelSelect.addEventListener('change', () => {
-    const isPro = visualModelSelect.value === 'gemini-3-pro-image-preview';
-    proModelAuthDiv.classList.toggle('hidden', !isPro);
-    proQualitySettingsDiv.classList.toggle('hidden', !isPro);
-});
-
-selectApiKeyBtn.addEventListener('click', async () => {
-    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
-        await window.aistudio.openSelectKey();
-    } else {
-        alert("API Key selection is only available within the AI Studio environment.");
-    }
-});
 
 // --- Event Listeners ---
 highContrastToggle.addEventListener('change', () => {
@@ -112,21 +90,8 @@ form.addEventListener('submit', async (e) => {
   if (!primaryKeyword) return;
 
   if (!process.env.API_KEY) {
-    outputDiv.innerHTML = `<div class="error-box"><h3>Key Missing</h3><p>Ensure API_KEY is set in Environment Variables.</p></div>`;
+    outputDiv.innerHTML = `<div class="error-box"><h3>Key Missing</h3><p>Ensure API_KEY is set in Vercel Environment Variables.</p></div>`;
     return;
-  }
-
-  // Check for Pro model API Key selection if needed
-  const modelType = formData.get('visual-model') as string;
-  if (modelType === 'gemini-3-pro-image-preview') {
-    if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
-        const hasKey = await window.aistudio.hasSelectedApiKey();
-        if (!hasKey) {
-            alert("You must select an API key to use the Gemini 3 Pro Image model.");
-            await window.aistudio.openSelectKey();
-            return;
-        }
-    }
   }
 
   // UI Reset
@@ -141,7 +106,7 @@ form.addEventListener('submit', async (e) => {
   readabilityScoreEl.textContent = '--';
   seoScoreEl.textContent = '--';
   generateBtn.disabled = true;
-  generateBtn.textContent = 'Generating...';
+  generateBtn.textContent = 'Analyzing SERPs...';
 
   const prompt = constructPrompt(formData);
 
@@ -183,6 +148,9 @@ form.addEventListener('submit', async (e) => {
 
       buffer += chunk.text || "";
       
+      // Cleanup buffer from partial metadata tags
+      let displayBuffer = buffer;
+      
       if (!articleJsonLd && buffer.includes(jsonLdEnd)) {
         const start = buffer.indexOf(jsonLdStart) + jsonLdStart.length;
         const end = buffer.indexOf(jsonLdEnd);
@@ -200,6 +168,7 @@ form.addEventListener('submit', async (e) => {
         buffer = buffer.replace(buffer.substring(buffer.indexOf(metaStart), end + metaEnd.length), "");
       }
       
+      // Sanitized stream for marked
       const cleanText = buffer
         .replace(/%%JSON-LD-START%%[\s\S]*?%%JSON-LD-END%%/g, '')
         .replace(/%%META-START%%[\s\S]*?%%META-END%%/g, '')
@@ -209,6 +178,7 @@ form.addEventListener('submit', async (e) => {
       outputDiv.innerHTML = await marked.parse(cleanText);
     }
 
+    // Display Grounding Sources
     if (uniqueSources.size > 0) {
       const sourcesList = Array.from(uniqueSources.entries()).map(([url, title]) => 
         `<li style="margin-bottom: 0.8rem; display: flex; align-items: center; gap: 0.8rem;">
@@ -234,9 +204,9 @@ form.addEventListener('submit', async (e) => {
   } catch (error: any) {
     console.error('Generation Error:', error);
     outputDiv.innerHTML = `<div class="error-box">
-        <h3>Generation Failed</h3>
+        <h3>Deployment Sync Failed</h3>
         <p>${error.message || 'The Gemini API connection was interrupted.'}</p>
-        <p><small>Check console for technical details.</small></p>
+        <p><small>Check your Vercel logs and ensure your API_KEY is correctly set as an Environment Variable.</small></p>
     </div>`;
     loadingIndicator.classList.add('hidden');
   } finally {
@@ -246,6 +216,7 @@ form.addEventListener('submit', async (e) => {
 });
 
 async function generateAndPlaceImagesParallel(primaryKeyword: string, formData: FormData): Promise<void> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
     const finalHtml = outputDiv.innerHTML;
     const imageStyle = (formData.get('image-style') as string || '').trim();
     const placeholderRegex = /\[(Featured Image|Image|Infographic|Diagram): (.*?)\]/g;
@@ -264,57 +235,45 @@ async function generateAndPlaceImagesParallel(primaryKeyword: string, formData: 
         const caption = match[2];
         const el = document.getElementById(`img-gen-${i}`);
 
+        // Visual Translation Layer to bypass brand-safety filters
         const visualDescription = translateToVisualPrompt(caption);
-        const model = formData.get('visual-model') as string;
-        const imageSize = (formData.get('image-size') as "1K" | "2K" | "4K") || "1K";
-
+        
         const prompt = (type === 'Featured Image') 
-            ? `High-end editorial photography of ${visualDescription}. Professional lighting, sharp focus, ${imageStyle || 'photorealistic style'}. No text.`
+            ? `High-end editorial photography of ${visualDescription}. Professional lighting, 8k resolution, cinematic focus, ${imageStyle || 'photorealistic style'}. No text or watermarks.`
             : `A professional ${type.toLowerCase()} illustration showing: ${visualDescription}. Style: ${imageStyle || 'clean, modern, minimalist'}.`;
 
         try {
+            // Stagger parallel requests to avoid Vercel edge limits
             await new Promise(r => setTimeout(r, i * 300));
-            // Always create a new instance to pick up potentially updated keys from environment
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
 
-            let base64: string | undefined;
-
-            if (model === 'imagen-4.0-generate-001') {
-                const response = await ai.models.generateImages({
-                    model: 'imagen-4.0-generate-001',
-                    prompt: prompt,
-                    config: {
-                        numberOfImages: 1,
-                        outputMimeType: 'image/jpeg',
-                        aspectRatio: '16:9',
-                    },
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash-image',
+                contents: { parts: [{ text: prompt }] },
+                config: { imageConfig: { aspectRatio: "16:9" } }
+            });
+            
+            const candidate = response.candidates?.[0];
+            
+            if (candidate?.finishReason === 'SAFETY') {
+                // Second attempt with ultra-neutral prompts
+                const neutralPrompt = `A high-quality professional studio photograph of a generic ${visualDescription.split(' ').pop()}. Neutral background, bright lighting.`;
+                const retryRes = await ai.models.generateContent({
+                    model: 'gemini-2.5-flash-image',
+                    contents: { parts: [{ text: neutralPrompt }] },
                 });
-                base64 = response.generatedImages?.[0]?.image?.imageBytes;
-            } else {
-                // Gemini Flash or Gemini Pro
-                const config: any = { imageConfig: { aspectRatio: "16:9" } };
-                if (model === 'gemini-3-pro-image-preview') {
-                    config.imageConfig.imageSize = imageSize;
+                const base64 = retryRes.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+                if (base64) {
+                    el?.replaceWith(renderImage(base64, caption));
+                    return;
                 }
-
-                const response = await ai.models.generateContent({
-                    model: model as any,
-                    contents: { parts: [{ text: prompt }] },
-                    config: config
-                });
-                
-                const candidate = response.candidates?.[0];
-                if (candidate?.finishReason === 'SAFETY') {
-                    throw new Error("Content safety block.");
-                }
-
-                base64 = candidate?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+                throw new Error("Blocked by content safety filters.");
             }
 
+            const base64 = candidate?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
             if (base64) {
                 el?.replaceWith(renderImage(base64, caption));
             } else {
-                throw new Error("No visual data returned.");
+                throw new Error("No visual data in response.");
             }
 
         } catch (err: any) {
@@ -323,7 +282,7 @@ async function generateAndPlaceImagesParallel(primaryKeyword: string, formData: 
                 el.classList.remove('loading');
                 el.innerHTML = `<div style="padding: 1.5rem; border: 1px dashed var(--error-color); border-radius: 12px; text-align: center;">
                     <p style="margin: 0; font-size: 0.85rem; color: var(--error-color); font-weight: 600;">Visual Unavailable</p>
-                    <p style="margin: 0.2rem 0 0; font-size: 0.75rem; color: var(--text-muted);">${err.message || 'Safety Filter'}</p>
+                    <p style="margin: 0.2rem 0 0; font-size: 0.75rem; color: var(--text-muted);">${err.message || 'Safety Block'}</p>
                 </div>`;
             }
         }
@@ -362,7 +321,7 @@ function calculateSeoScore(text: string, html: string, formData: FormData): numb
     if (html.toLowerCase().includes(`<h1`)) s += 20;
     if (text.toLowerCase().includes(kw)) s += 30;
     if (html.includes('<img')) s += 20;
-    if (html.includes('href="http')) s += 30;
+    if (html.includes('href="http')) s += 30; // Check for external/internal links presence
     return Math.min(100, s);
 }
 
@@ -426,26 +385,32 @@ function constructPrompt(formData: FormData): string {
     const sitemap = get('internal-sitemap');
     
     return `
-      You are an Elite SEO Strategist. 
+      You are an Elite SEO Strategist and Content Creator. 
       Deliver your response in three distinct blocks:
       1. %%JSON-LD-START%% [Schema.org Article JSON] %%JSON-LD-END%%
       2. %%META-START%% [Meta Description (155 chars max)] %%META-END%%
       3. [Full Article in Markdown]
 
-      LINKING REQUIREMENTS:
-      ${addExternal ? `- MANDATORY: Include exactly ${linkCount} external hyperlinks from authoritative sources (Wiki, Forbes, NYT, etc.). 
-      - FORMAT: [Anchor Text](URL)` : "- No external links required."}
+      LINKING REQUIREMENTS (MANDATORY):
+      ${addExternal ? `- You MUST include exactly ${linkCount} external hyperlinks using high-authority industry sources (e.g. Wikipedia, New York Times, Forbes, or relevant industry leaders). 
+      - FORMAT: [Anchor Text](URL)
+      - Integrate them naturally into the body text.` : "- No external links required."}
       
-      ${sitemap ? `- INTERNAL LINKING: Integrate these URLs if relevant: ${sitemap}` : ""}
+      ${sitemap ? `- INTERNAL LINKING: Use the following URLs to link related concepts within the article: ${sitemap}` : ""}
 
       CONTENT STRATEGY:
-      - Topic: "${kw}"
-      ${slang ? `- Tone Override: Use natural "${slang}" slang.` : ""}
+      - Main Topic: "${kw}"
+      ${slang ? `- Tone Override: Use natural "${slang}" slang and idioms seamlessly.` : ""}
+      - Reader Problem: ${get('reader-problem')}
+      - Expertise (E-E-A-T): ${get('unique-insights')}
       - Author Bio: ${get('author-bio')}
 
       OPTIMIZATION:
+      - Bold these keywords: ${get('secondary-keywords')}, ${get('lsi-keywords')}.
       - Use H1, H2, and H3 headers.
       - Place exactly ${get('multimedia-count')} visual placeholders: [Featured Image: ${kw}] or [Image: descriptive scene].
+      
+      Begin generation now.
     `;
 }
 

@@ -106,6 +106,16 @@
                         </div>
                         <textarea id="secondary-keywords" name="secondary-keywords" placeholder="e.g., 'organic soil', 'drought-resistant plants', 'urban farming'"></textarea>
                     </div>
+                    <div class="form-group">
+                        <div class="form-group-header">
+                            <label for="longtail-keywords">Longtail Keywords</label>
+                            <button type="button" class="generate-single-keyword-btn" data-type="Long-tail Keywords" data-target="longtail-keywords" aria-label="Generate Long-tail Keywords">
+                                <span class="btn-text">Generate</span>
+                                <div class="spinner-small hidden"></div>
+                            </button>
+                        </div>
+                        <textarea id="longtail-keywords" name="longtail-keywords" placeholder="e.g., 'how to start a vegetable garden in a small space'"></textarea>
+                    </div>
                     
                     <!-- Internal Linking Strategy -->
                     <div class="form-group">
@@ -126,6 +136,26 @@
                         </div>
                         <textarea id="cluster-keywords" name="cluster-keywords" placeholder="e.g., 'composting', 'pest control', 'watering techniques'"></textarea>
                     </div>
+                    <div class="form-group">
+                        <div class="form-group-header">
+                            <label for="related-searches">Related Searches</label>
+                            <button type="button" class="generate-single-keyword-btn" data-type="Related Searches" data-target="related-searches" aria-label="Generate Related Searches">
+                                <span class="btn-text">Generate</span>
+                                <div class="spinner-small hidden"></div>
+                            </button>
+                        </div>
+                        <textarea id="related-searches" name="related-searches" placeholder="e.g., 'balcony garden ideas', 'best plants for beginners'"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <div class="form-group-header">
+                            <label for="lsi-keywords">LSI Keywords</label>
+                            <button type="button" class="generate-single-keyword-btn" data-type="LSI Keywords" data-target="lsi-keywords" aria-label="Generate LSI Keywords">
+                                <span class="btn-text">Generate</span>
+                                <div class="spinner-small hidden"></div>
+                            </button>
+                        </div>
+                        <textarea id="lsi-keywords" name="lsi-keywords" placeholder="e.g., 'soil health', 'plant nutrition', 'garden ecosystem'"></textarea>
+                    </div>
                     
                     <!-- NLP Section Start -->
                     <div class="form-group">
@@ -141,8 +171,43 @@
                                 </button>
                             </div>
                             <textarea id="nlp-entities" name="nlp-entities" placeholder="e.g., 'Photosynthesis', 'Nitrogen Cycle' (Auto-generated via button)" style="min-height: 100px;"></textarea>
+                            
+                            <div style="margin-top: 1rem;">
+                                <label for="nlp-tone">Semantic Tone & Depth</label>
+                                <select id="nlp-tone" name="nlp-tone">
+                                    <option value="Authoritative & Objective">Authoritative & Objective (Wikipedia style)</option>
+                                    <option value="Conversational & Engaging" selected>Conversational & Engaging (Blog style)</option>
+                                    <option value="Persuasive & Action-Oriented">Persuasive & Action-Oriented (Sales style)</option>
+                                    <option value="Educational & Simple">Educational & Simple (Beginner Guide)</option>
+                                    <option value="Technical & Deep">Technical & Deep (Whitepaper)</option>
+                                </select>
+                            </div>
                         </fieldset>
                     </div>
+                    <!-- NLP Section End -->
+
+                    <!-- Advanced Ranking Signals Section -->
+                    <div class="form-group">
+                        <fieldset>
+                            <legend>Advanced Ranking Signals</legend>
+                            <p class="fieldset-helper-text">Target specific Google ranking systems.</p>
+                            <div class="checkbox-group">
+                                <div>
+                                    <input type="checkbox" id="optimize-passage-ranking" name="optimize-passage-ranking">
+                                    <label for="optimize-passage-ranking">Optimize for Passage Ranking (Featured Snippets)</label>
+                                </div>
+                                <div>
+                                    <input type="checkbox" id="include-key-takeaways" name="include-key-takeaways" checked>
+                                    <label for="include-key-takeaways">Include "Key Takeaways" (RankBrain/UX)</label>
+                                </div>
+                                <div>
+                                    <input type="checkbox" id="add-myth-busting" name="add-myth-busting">
+                                    <label for="add-myth-busting">Add "Myths vs. Facts" (Originality)</label>
+                                </div>
+                            </div>
+                        </fieldset>
+                    </div>
+                    <!-- End Ranking Signals Section -->
 
                     <div class="form-group">
                         <label for="country-slang">Target Country Slang (Optional)</label>
@@ -152,7 +217,37 @@
                         <label for="author-bio">Author Bio (for E-E-A-T)</label>
                         <textarea id="author-bio" name="author-bio" placeholder="e.g., 'Jane Doe is a certified horticulturalist with over 15 years of experience...'"></textarea>
                     </div>
-                    
+                    <div class="form-group">
+                        <fieldset>
+                            <legend>Target SERP Features</legend>
+                            <div class="checkbox-group">
+                                <div>
+                                    <input type="checkbox" id="serp-featured-snippet" name="serp-features" value="Featured snippet">
+                                    <label for="serp-featured-snippet">Featured snippet</label>
+                                </div>
+                                <div>
+                                    <input type="checkbox" id="serp-thumbnails" name="serp-features" value="Thumbnails">
+                                    <label for="serp-thumbnails">Thumbnails</label>
+                                </div>
+                                <div>
+                                    <input type="checkbox" id="serp-people-also-ask" name="serp-features" value="People also ask">
+                                    <label for="serp-people-also-ask">People also ask</label>
+                                </div>
+                                <div>
+                                    <input type="checkbox" id="serp-top-stories" name="serp-features" value="Top stories">
+                                    <label for="serp-top-stories">Top stories</label>
+                                </div>
+                                <div>
+                                    <input type="checkbox" id="serp-videos" name="serp-features" value="Videos">
+                                    <label for="serp-videos">Videos</label>
+                                </div>
+                                <div>
+                                    <input type="checkbox" id="serp-image-pack" name="serp-features" value="Image pack">
+                                    <label for="serp-image-pack">Image pack</label>
+                                </div>
+                            </div>
+                        </fieldset>
+                    </div>
                     <div class="form-group">
                         <label for="article-length">Article Length</label>
                         <select id="article-length" name="article-length">
@@ -177,49 +272,66 @@
                         </fieldset>
                     </div>
                     
-                    <!-- Multimedia Section -->
+                    <!-- Affiliate Marketing Section -->
                     <div class="form-group">
                         <fieldset>
-                            <legend>Multimedia Settings</legend>
-                            
-                            <div class="form-group">
-                                <label for="multimedia-count">Number of Multimedia Placeholders</label>
-                                <input type="number" id="multimedia-count" name="multimedia-count" value="3" min="0" max="10">
+                            <legend>Affiliate Marketing (High Conversion)</legend>
+                            <p class="fieldset-helper-text">Boost revenue by inserting strategic product links.</p>
+                            <div style="margin-bottom: 1rem;">
+                                <label for="affiliate-product">Product Name</label>
+                                <input type="text" id="affiliate-product" name="affiliate-product" placeholder="e.g., 'HydroFlask 2.0 Water Bottle'">
                             </div>
-
-                            <div class="form-group">
-                                <label for="visual-model">Visual Intelligence Model</label>
-                                <select id="visual-model" name="visual-model">
-                                    <option value="gemini-2.5-flash-image">Gemini Flash (Fast & Versatile)</option>
-                                    <option value="gemini-3-pro-image-preview">Gemini 3 Pro (High Quality 4K - Requires Auth)</option>
-                                    <option value="imagen-4.0-generate-001">Imagen 4 (Legacy High Performance)</option>
-                                </select>
-                                <div id="pro-model-auth" class="hidden" style="margin-top: 0.5rem;">
-                                    <button type="button" id="select-api-key-btn" class="secondary-btn" style="width: 100%; border: 1px solid var(--primary-color);">
-                                        Select Paid API Key for Gemini Pro
-                                    </button>
-                                    <p class="fieldset-helper-text" style="color: var(--primary-color);">Note: Paid keys are required for 2K/4K Pro generations. <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" style="color: inherit; text-decoration: underline;">Billing Docs</a></p>
-                                </div>
+                            <div style="margin-bottom: 1rem;">
+                                <label for="affiliate-url">Affiliate Link URL</label>
+                                <input type="text" id="affiliate-url" name="affiliate-url" placeholder="https://www.example.com/product-link">
                             </div>
-
-                            <div id="pro-quality-settings" class="hidden">
-                                <div class="form-group">
-                                    <label for="image-size">Image Quality</label>
-                                    <select id="image-size" name="image-size">
-                                        <option value="1K">1K Resolution</option>
-                                        <option value="2K">2K Resolution (Ultra)</option>
-                                        <option value="4K">4K Resolution (Master)</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="image-style">Image Style (Optional)</label>
-                                <input type="text" id="image-style" name="image-style" placeholder="e.g., 'photorealistic', 'cinematic lighting', 'vector art'">
+                            <div>
+                                <label for="affiliate-anchor">Anchor Text</label>
+                                <input type="text" id="affiliate-anchor" name="affiliate-anchor" placeholder="e.g., 'Check the latest price here'">
                             </div>
                         </fieldset>
                     </div>
+                    <!-- End Affiliate Marketing Section -->
 
+                    <div class="form-group">
+                        <label for="multimedia-count">Number of Multimedia Placeholders</label>
+                        <input type="number" id="multimedia-count" name="multimedia-count" value="3" min="0" max="10">
+                    </div>
+                    <div class="form-group">
+                        <fieldset>
+                            <legend>Multimedia Types</legend>
+                            <div class="checkbox-group">
+                                <div>
+                                    <input type="checkbox" id="type-images" name="multimedia-types" value="Image" checked>
+                                    <label for="type-images">Images</label>
+                                </div>
+                                <div>
+                                    <input type="checkbox" id="type-infographics" name="multimedia-types" value="Infographic">
+                                    <label for="type-infographics">Infographics</label>
+                                </div>
+                                <div>
+                                    <input type="checkbox" id="type-diagrams" name="multimedia-types" value="Diagram">
+                                    <label for="type-diagrams">Diagrams</label>
+                                </div>
+                            </div>
+                        </fieldset>
+                    </div>
+                    <div class="form-group">
+                        <label for="image-style">Image Style (Optional)</label>
+                        <input type="text" id="image-style" name="image-style" placeholder="e.g., 'photorealistic', 'cinematic lighting', 'vector art'">
+                    </div>
+                    <div class="form-group">
+                        <label for="image-prompts">Image Prompts (Optional, one per line)</label>
+                        <textarea id="image-prompts" name="image-prompts" placeholder="If provided, these will override the article's suggested images.&#10;e.g., A close-up of a vibrant tomato plant&#10;A person tending to their balcony garden"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="intro-hook">Introduction Hook</label>
+                        <input type="text" id="intro-hook" name="intro-hook" placeholder="e.g., 'Start with a surprising statistic about urban gardening.'">
+                    </div>
+                    <div class="form-group">
+                        <label for="conclusion-style">Conclusion Style</label>
+                        <input type="text" id="conclusion-style" name="conclusion-style" placeholder="e.g., 'End with a personal touch and an inspiring call to action.'">
+                    </div>
                     <button type="submit" id="generate-btn">Generate Article</button>
                 </form>
             </div>
@@ -249,6 +361,7 @@
                     </div>
                 </div>
                 
+                <!-- Meta Description Display Area -->
                 <div id="meta-description-container" class="hidden" style="margin-bottom: 1.5rem; padding: 1rem; background: #050505; border: 1px solid var(--border-color); border-radius: 6px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                         <strong style="color: var(--primary-color);">Auto-Generated Meta Description</strong>
