@@ -37,6 +37,29 @@ const nlpEntitiesInput = document.getElementById('nlp-entities') as HTMLTextArea
 let articleJsonLd: string | null = null;
 let articleMetaDescription: string | null = null;
 
+// --- Helper: Debrand Prompt ---
+// Detects branded items that might trigger safety filters and converts to descriptive terms
+function debrandPrompt(prompt: string, primaryKeyword: string): string {
+    let p = prompt.toLowerCase();
+    const brands: Record<string, string> = {
+        'ktm': 'performance orange and black street-fighter motorcycle',
+        'duke': 'naked-style sports motorcycle',
+        'apple': 'modern high-end smartphone',
+        'tesla': 'sleek electric sports car',
+        'nike': 'athletic footwear',
+        'samsung': 'modern digital mobile device'
+    };
+
+    let refined = prompt;
+    Object.keys(brands).forEach(brand => {
+        if (p.includes(brand)) {
+            refined = refined.replace(new RegExp(brand, 'gi'), brands[brand]);
+        }
+    });
+    
+    return refined;
+}
+
 // --- Event Listeners ---
 highContrastToggle.addEventListener('change', () => {
     document.body.classList.toggle('high-contrast', highContrastToggle.checked);
@@ -65,7 +88,7 @@ form.addEventListener('submit', async (e) => {
   if (!primaryKeyword) return;
 
   if (!process.env.API_KEY) {
-    outputDiv.innerHTML = `<div class="error-box"><h3>Key Missing</h3><p>Please ensure the API_KEY is set in your Vercel Environment Variables.</p></div>`;
+    outputDiv.innerHTML = `<div class="error-box"><h3>Key Missing</h3><p>API_KEY not found in Vercel. Go to Project Settings > Environment Variables.</p></div>`;
     return;
   }
 
@@ -81,7 +104,7 @@ form.addEventListener('submit', async (e) => {
   readabilityScoreEl.textContent = '--';
   seoScoreEl.textContent = '--';
   generateBtn.disabled = true;
-  generateBtn.textContent = 'Analyzing...';
+  generateBtn.textContent = 'Generating...';
 
   const prompt = constructPrompt(formData);
 
@@ -111,7 +134,6 @@ form.addEventListener('submit', async (e) => {
         firstChunk = false;
       }
       
-      // Extract grounding metadata if search was used
       const grounding = chunk.candidates?.[0]?.groundingMetadata;
       if (grounding?.groundingChunks) {
         grounding.groundingChunks.forEach(c => {
@@ -123,13 +145,11 @@ form.addEventListener('submit', async (e) => {
 
       buffer += chunk.text || "";
       
-      // Extraction logic for hidden metadata (only extract once end tag is found)
       if (!articleJsonLd && buffer.includes(jsonLdEnd)) {
         const start = buffer.indexOf(jsonLdStart) + jsonLdStart.length;
         const end = buffer.indexOf(jsonLdEnd);
         articleJsonLd = buffer.substring(start, end).trim();
-        // Remove the block from visible text immediately
-        buffer = buffer.substring(0, buffer.indexOf(jsonLdStart)) + buffer.substring(end + jsonLdEnd.length);
+        buffer = buffer.replace(buffer.substring(buffer.indexOf(jsonLdStart), end + jsonLdEnd.length), "");
       }
 
       if (!articleMetaDescription && buffer.includes(metaEnd)) {
@@ -139,31 +159,25 @@ form.addEventListener('submit', async (e) => {
         metaDescriptionTextEl.textContent = articleMetaDescription;
         metaCharCountEl.textContent = `${articleMetaDescription.length} / 160`;
         metaDescriptionContainer.classList.remove('hidden');
-        // Remove from visible text
-        buffer = buffer.substring(0, buffer.indexOf(metaStart)) + buffer.substring(end + metaEnd.length);
+        buffer = buffer.replace(buffer.substring(buffer.indexOf(metaStart), end + metaEnd.length), "");
       }
       
-      // Final clean for partially streamed tags
-      let cleanText = buffer
-        .split(jsonLdStart)[0]
-        .split(metaStart)[0];
-        
+      let cleanText = buffer.split(jsonLdStart)[0].split(metaStart)[0];
       outputDiv.innerHTML = await marked.parse(cleanText);
     }
 
-    // Append Grounding Sources if any
     if (uniqueSources.size > 0) {
       const sourcesList = Array.from(uniqueSources.entries()).map(([url, title]) => 
-        `<li style="margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
-          <img src="https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=32" style="width:16px; height:16px;" alt="">
-          <a href="${url}" target="_blank" style="color: var(--primary-color); text-decoration: none; font-size: 0.9rem;">${title}</a>
+        `<li style="margin-bottom: 0.8rem; display: flex; align-items: center; gap: 0.8rem;">
+          <img src="https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=32" style="width:18px; height:18px; border-radius: 4px;" alt="">
+          <a href="${url}" target="_blank" style="color: var(--primary-color); text-decoration: none; font-size: 0.95rem; font-weight: 500;">${title}</a>
         </li>`
       ).join('');
       
       const groundingHtml = `
-        <div class="grounding-sources" style="margin-top: 4rem; padding-top: 2rem; border-top: 1px solid var(--border-color);">
-          <h3 style="font-size: 1.2rem; margin-bottom: 1rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em;">Verified Sources & Grounding</h3>
-          <ul style="list-style: none; padding: 0;">${sourcesList}</ul>
+        <div class="grounding-sources" style="margin-top: 4rem; padding: 2rem; background: rgba(0,242,234,0.03); border: 1px solid var(--border-color); border-radius: 16px;">
+          <h3 style="font-size: 1rem; margin-bottom: 1.5rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">Verified Research Sources</h3>
+          <ul style="list-style: none; padding: 0; margin: 0;">${sourcesList}</ul>
         </div>
       `;
       outputDiv.innerHTML += groundingHtml;
@@ -180,7 +194,7 @@ form.addEventListener('submit', async (e) => {
     outputDiv.innerHTML = `<div class="error-box">
         <h3>Deployment Sync Failed</h3>
         <p>${error.message || 'The Gemini API connection was interrupted.'}</p>
-        <p><small>Check your Vercel logs and ensure your API_KEY project secret is correct.</small></p>
+        <p><small>Check your Vercel logs. Ensure the API_KEY is set correctly.</small></p>
     </div>`;
     loadingIndicator.classList.add('hidden');
   } finally {
@@ -201,10 +215,7 @@ async function generateAndPlaceImagesParallel(primaryKeyword: string, formData: 
     let pIdx = 0;
     outputDiv.innerHTML = finalHtml.replace(placeholderRegex, () => {
         const id = `img-gen-${pIdx++}`;
-        return `<figure id="${id}" class="image-placeholder loading">
-            <div class="spinner"></div>
-            <figcaption>Synthesizing Visual Context...</figcaption>
-        </figure>`;
+        return `<figure id="${id}" class="image-placeholder loading"><div class="spinner"></div><figcaption>Synthesizing Visual...</figcaption></figure>`;
     });
 
     const tasks = matches.map(async (match, i) => {
@@ -212,12 +223,16 @@ async function generateAndPlaceImagesParallel(primaryKeyword: string, formData: 
         const caption = match[2];
         const el = document.getElementById(`img-gen-${i}`);
 
-        // Strategy for bypassing safety blocks: Describe the essence rather than just using brand names alone
+        // Debrand the caption to avoid safety filters
+        const safeCaption = debrandPrompt(caption, primaryKeyword);
         const prompt = (type === 'Featured Image') 
-            ? `Professional cinematic editorial photography for an article titled "${primaryKeyword}". Visual details: ${caption}. Highly detailed, 8k, ${imageStyle || 'photorealistic'}. No text overlays.`
-            : `A high-quality professional ${type.toLowerCase()} illustration of ${caption} related to ${primaryKeyword}. ${imageStyle || 'clean and modern styling'}.`;
+            ? `High-end editorial photography of ${safeCaption}. Professional commercial lighting, sharp focus, 8k resolution, ${imageStyle || 'photorealistic'}.`
+            : `A professional ${type.toLowerCase()} of ${safeCaption}. Style: ${imageStyle || 'modern clean'}. No text.`;
 
         try {
+            // Stagger requests slightly to avoid Vercel rate limits
+            await new Promise(r => setTimeout(r, i * 200));
+
             const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash-image',
                 contents: { parts: [{ text: prompt }] },
@@ -225,35 +240,30 @@ async function generateAndPlaceImagesParallel(primaryKeyword: string, formData: 
             
             const candidate = response.candidates?.[0];
             if (candidate?.finishReason === 'SAFETY') {
-                // Retry with a more generic "brand-less" prompt
-                const fallbackPrompt = `A high-quality professional image showing ${caption.replace(primaryKeyword, 'a modern vehicle/subject')}. Studio lighting, neutral background.`;
-                const fallbackRes = await ai.models.generateContent({
+                const ultraSafePrompt = `Professional close-up photography of ${safeCaption.split(' ').pop()} on a neutral studio background. Bright lighting, cinematic quality.`;
+                const res = await ai.models.generateContent({
                     model: 'gemini-2.5-flash-image',
-                    contents: { parts: [{ text: fallbackPrompt }] },
+                    contents: { parts: [{ text: ultraSafePrompt }] },
                 });
-                const fallbackCandidate = fallbackRes.candidates?.[0];
-                const base64 = fallbackCandidate?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+                const base64 = res.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
                 if (base64) {
                     el?.replaceWith(renderImage(base64, caption));
                     return;
                 }
-                throw new Error("Blocked by content safety filters.");
+                throw new Error("Blocked by safety filters.");
             }
 
             const base64 = candidate?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+            if (base64) el?.replaceWith(renderImage(base64, caption));
+            else throw new Error("No data returned.");
 
-            if (base64) {
-                el?.replaceWith(renderImage(base64, caption));
-            } else {
-                throw new Error("API returned no visual data.");
-            }
         } catch (err: any) {
             console.error(`Visual error: ${caption}`, err);
             if (el) {
                 el.classList.remove('loading');
-                el.innerHTML = `<div class="error-small" style="padding: 1rem; border: 1px dashed var(--error-color); border-radius: 8px;">
-                    <p style="margin: 0; font-size: 0.8rem; color: var(--error-color);">Visual Generation Unavailable</p>
-                    <p style="margin: 0.3rem 0 0; font-size: 0.7rem; color: var(--text-muted); opacity: 0.7;">Reason: ${err.message}</p>
+                el.innerHTML = `<div style="padding: 1.5rem; border: 1px dashed var(--error-color); border-radius: 12px; text-align: center;">
+                    <p style="margin: 0; font-size: 0.85rem; color: var(--error-color); font-weight: 600;">Visual Unavailable</p>
+                    <p style="margin: 0.2rem 0 0; font-size: 0.75rem; color: var(--text-muted);">${caption}</p>
                 </div>`;
             }
         }
@@ -292,7 +302,7 @@ function calculateSeoScore(text: string, html: string, formData: FormData): numb
     if (html.toLowerCase().includes(`<h1`)) s += 20;
     if (text.toLowerCase().includes(kw)) s += 30;
     if (html.includes('<img')) s += 20;
-    if (text.split(' ').length > 800) s += 30;
+    if (html.includes('href="http')) s += 30; // Check for external links presence
     return Math.min(100, s);
 }
 
@@ -311,7 +321,7 @@ kBtns.forEach(b => b.addEventListener('click', async () => {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
         const res = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: `Generate 5 expert ${btn.dataset.type} for "${kw}". Return as JSON array of strings.`,
+            contents: `Generate 5 expert ${btn.dataset.type} for "${kw}". JSON array of strings only.`,
             config: { responseMimeType: "application/json", responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } } }
         });
         const target = document.getElementById(btn.dataset.target!) as HTMLTextAreaElement;
@@ -351,32 +361,30 @@ function constructPrompt(formData: FormData): string {
     const get = (id: string) => (formData.get(id) as string || "").trim();
     const kw = get('primary-keyword');
     const slang = get('country-slang');
+    const addExternal = formData.get('add-external-links') === 'on';
+    const linkCount = get('external-links-count') || "3";
     
     return `
-      You are an Elite SEO Content Strategist. Generate a response in three blocks:
-      1. %%JSON-LD-START%% Valid Schema.org Article Object %%JSON-LD-END%%
-      2. %%META-START%% CTR-focused Meta Description (max 155 chars) for keyword: ${kw} %%META-END%%
-      3. A comprehensive, high-authority article in Markdown.
+      You are an Elite SEO Content Strategist. Response blocks:
+      1. %%JSON-LD-START%% Valid Article Schema %%JSON-LD-END%%
+      2. %%META-START%% Meta Description (max 155 chars) %%META-END%%
+      3. FULL SEO ARTICLE IN MARKDOWN.
 
-      CONTENT GUIDELINES:
-      - Primary Keyword: "${kw}"
-      ${slang ? `- Tone Override: Use authentic "${slang}" slang and cultural nuances seamlessly.` : ""}
-      - Author Bio: ${get('author-bio')}
-      - Reader Pain Point: ${get('reader-problem')}
-      ${formData.get('people-first-mode') === 'on' ? "- Focus exclusively on practical utility; zero fluff." : ""}
+      LINK PLACEMENT (CRITICAL):
+      ${addExternal ? `- MANDATORY: You MUST integrate exactly ${linkCount} real-world external hyperlinks into the body of the article.
+      - Format: [Descriptive Anchor Text](https://high-authority-source.com)
+      - Use reputable industry domains. Do not place them in a list at the end; weave them into sentences.` : "- No external links required."}
 
-      SEO SPECIFICATIONS:
-      - Semantic Keywords to Bold: ${get('secondary-keywords')}, ${get('lsi-keywords')}.
-      - NLP Entities: ${get('nlp-entities')}.
-      - Depth Goal: ${get('article-length')}.
-      
-      STRUCTURE:
-      - Use H1, H2, and H3 tags. Short, punchy paragraphs.
-      ${formData.get('include-key-takeaways') === 'on' ? "- Include a 'Key Takeaways' box at the very beginning." : ""}
-      - Multimedia: Place exactly ${get('multimedia-count')} markers like [Featured Image: ${kw}] or [Image: ${kw} in action] throughout.
-      ${get('affiliate-url') ? `- Natural Affiliate CTA for "${get('affiliate-product')}" linking to ${get('affiliate-url')}.` : ""}
+      CONTENT REQS:
+      - Keyword: "${kw}"
+      ${slang ? `- Tone: Authentic "${slang}" slang.` : ""}
+      - Author: ${get('author-bio')}
+      ${formData.get('people-first-mode') === 'on' ? "- Strictly people-first, useful info." : ""}
 
-      Ensure delimiters are strictly formatted.
+      SEO:
+      - Bold Keywords: ${get('secondary-keywords')}, ${get('lsi-keywords')}.
+      - Structure: H1, H2, H3. Key Takeaways at start.
+      - Multimedia: Place ${get('multimedia-count')} markers: [Featured Image: ${kw}] or [Image: specific scene].
     `;
 }
 
@@ -397,7 +405,6 @@ downloadBtn.addEventListener('click', () => {
     a.click();
 });
 
-// Init
 const isHigh = localStorage.getItem('highContrastMode') === 'true';
 highContrastToggle.checked = isHigh;
 document.body.classList.toggle('high-contrast', isHigh);
