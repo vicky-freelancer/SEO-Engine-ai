@@ -5,6 +5,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { marked } from "marked";
 
+// API key is obtained exclusively from the environment variable.
+const API_KEY = process.env.API_KEY;
+
+if (!API_KEY) {
+  console.error("API_KEY environment variable is missing.");
+}
+
+const ai = new GoogleGenAI({ apiKey: API_KEY || "" });
+
 // --- DOM Element Selection ---
 const form = document.getElementById('article-form') as HTMLFormElement;
 const generateBtn = document.getElementById('generate-btn') as HTMLButtonElement;
@@ -25,7 +34,7 @@ const metaDescriptionContainer = document.getElementById('meta-description-conta
 const metaDescriptionTextEl = document.getElementById('meta-description-text') as HTMLParagraphElement;
 const metaCharCountEl = document.getElementById('meta-char-count') as HTMLSpanElement;
 
-// UI elements
+// New elements for enhanced UI
 const highContrastToggle = document.getElementById('high-contrast-toggle') as HTMLInputElement;
 const summaryKeywordEl = document.getElementById('summary-keyword') as HTMLElement;
 const summaryLengthEl = document.getElementById('summary-length') as HTMLElement;
@@ -41,6 +50,7 @@ let articleJsonLd: string | null = null;
 let articleMetaDescription: string | null = null;
 
 // --- Event Listeners ---
+
 highContrastToggle.addEventListener('change', () => {
     document.body.classList.toggle('high-contrast', highContrastToggle.checked);
     localStorage.setItem('highContrastMode', String(highContrastToggle.checked));
@@ -61,15 +71,17 @@ addExternalLinksCheckbox.addEventListener('change', () => {
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   
+  if (!API_KEY) {
+      alert("Missing API Key. Please configure the API_KEY environment variable in your Vercel project settings.");
+      return;
+  }
+
   const formData = new FormData(form);
-  const primaryKeyword = (formData.get('primary-keyword') as string).trim();
+  const primaryKeyword = formData.get('primary-keyword') as string;
   const analyzeCompetitors = formData.get('analyze-competitors') === 'on';
 
-  if (!primaryKeyword) return;
-
-  // Verify API Key existence before starting
-  if (!process.env.API_KEY) {
-    outputDiv.innerHTML = `<div class="error-box"><h3>Configuration Error</h3><p>API_KEY is missing. Please set it in your Vercel Environment Variables.</p></div>`;
+  if (!primaryKeyword.trim()) {
+    alert('Please enter a primary keyword.');
     return;
   }
 
@@ -85,27 +97,31 @@ form.addEventListener('submit', async (e) => {
   readabilityScoreEl.textContent = '--';
   seoScoreEl.textContent = '--';
   generateBtn.disabled = true;
-  generateBtn.textContent = 'Analyzing...';
+  generateBtn.textContent = analyzeCompetitors ? 'Deep Analyzing SERPs...' : 'Generating Content...';
 
   const prompt = constructPrompt(formData);
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const requestConfig: any = {
+        thinkingConfig: { thinkingBudget: 32768 } 
+    };
+    if (analyzeCompetitors) {
+      requestConfig.tools = [{googleSearch: {}}];
+    }
+
     const response = await ai.models.generateContentStream({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
-      config: {
-        thinkingConfig: { thinkingBudget: 0 }, // Disable thinking for maximum speed on Vercel
-        tools: analyzeCompetitors ? [{ googleSearch: {} }] : undefined
-      }
+      config: requestConfig
     });
 
     let firstChunk = true;
     let buffer = '';
-    const jsonLdStart = '%%JSON-LD-START%%';
-    const jsonLdEnd = '%%JSON-LD-END%%';
-    const metaStart = '%%META-START%%';
-    const metaEnd = '%%META-END%%';
+    const jsonLdStartDelimiter = '%%JSON-LD-START%%';
+    const jsonLdEndDelimiter = '%%JSON-LD-END%%';
+    const metaStartDelimiter = '%%META-START%%';
+    const metaEndDelimiter = '%%META-END%%';
+    let collectedGroundingChunks: any[] = [];
 
     for await (const chunk of response) {
       if (firstChunk) {
@@ -113,51 +129,64 @@ form.addEventListener('submit', async (e) => {
         firstChunk = false;
       }
       
-      buffer += chunk.text || "";
-      
-      // Extraction logic for hidden metadata
-      if (!articleJsonLd && buffer.includes(jsonLdEnd)) {
-        const start = buffer.indexOf(jsonLdStart) + jsonLdStart.length;
-        const end = buffer.indexOf(jsonLdEnd);
-        articleJsonLd = buffer.substring(start, end).trim();
-        buffer = buffer.substring(end + jsonLdEnd.length);
+      if (chunk.candidates?.[0]?.groundingMetadata?.groundingChunks) {
+        collectedGroundingChunks = [
+            ...collectedGroundingChunks, 
+            ...chunk.candidates[0].groundingMetadata.groundingChunks
+        ];
       }
 
-      if (!articleMetaDescription && buffer.includes(metaEnd)) {
-        const start = buffer.indexOf(metaStart) + metaStart.length;
-        const end = buffer.indexOf(metaEnd);
-        articleMetaDescription = buffer.substring(start, end).trim();
+      buffer += chunk.text || "";
+      
+      // Extract Hidden Metadata Blocks
+      if (!articleJsonLd && buffer.includes(jsonLdEndDelimiter)) {
+        const startIndex = buffer.indexOf(jsonLdStartDelimiter) + jsonLdStartDelimiter.length;
+        const endIndex = buffer.indexOf(jsonLdEndDelimiter);
+        articleJsonLd = buffer.substring(startIndex, endIndex).trim();
+        buffer = buffer.substring(endIndex + jsonLdEndDelimiter.length);
+      }
+
+      if (!articleMetaDescription && buffer.includes(metaEndDelimiter)) {
+        const startIndex = buffer.indexOf(metaStartDelimiter) + metaStartDelimiter.length;
+        const endIndex = buffer.indexOf(metaEndDelimiter);
+        articleMetaDescription = buffer.substring(startIndex, endIndex).trim();
         metaDescriptionTextEl.textContent = articleMetaDescription;
         metaCharCountEl.textContent = `${articleMetaDescription.length} / 160`;
         metaDescriptionContainer.classList.remove('hidden');
-        buffer = buffer.substring(end + metaEnd.length);
+        buffer = buffer.substring(endIndex + metaEndDelimiter.length);
       }
       
-      // Render text part
-      const cleanText = buffer
-        .replace(jsonLdStart, '').replace(jsonLdEnd, '')
-        .replace(metaStart, '').replace(metaEnd, '');
-        
-      outputDiv.innerHTML = await marked.parse(cleanText);
+      if ((articleJsonLd && articleMetaDescription) || (!buffer.includes(jsonLdStartDelimiter) && !buffer.includes(metaStartDelimiter))) {
+        outputDiv.innerHTML = await marked.parse(buffer);
+      }
     }
 
+    // Process Grounding Sources
+    if (collectedGroundingChunks.length > 0) {
+        const uniqueSources = new Map();
+        collectedGroundingChunks.forEach((chunk: any) => {
+            if (chunk.web?.uri && chunk.web?.title) uniqueSources.set(chunk.web.uri, chunk.web.title);
+        });
+
+        if (uniqueSources.size > 0) {
+            let sourcesHtml = `<div class="sources-section"><h3>Grounding Sources</h3><ul>`;
+            uniqueSources.forEach((title, uri) => {
+                sourcesHtml += `<li><a href="${uri}" target="_blank">🔗 ${title}</a></li>`;
+            });
+            sourcesHtml += `</ul></div>`;
+            outputDiv.innerHTML += sourcesHtml;
+        }
+    }
+    
     updateMetrics(formData);
-    await generateAndPlaceImages(primaryKeyword, formData);
+    await generateAndPlaceImages(formData, primaryKeyword);
 
     outputStats.classList.remove('hidden');
     outputActions.classList.remove('hidden');
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Generation Error:', error);
-    let errorMsg = error.message || 'An unexpected error occurred.';
-    if (errorMsg.includes('quota')) errorMsg = 'API Quota reached. Please try again later.';
-    if (errorMsg.includes('deadline')) errorMsg = 'The request timed out. Try shorter content or check Vercel limits.';
-    
-    outputDiv.innerHTML = `<div class="error-box">
-        <h3>Generation Failed</h3>
-        <p>${errorMsg}</p>
-        <small>Tip: Ensure your API key is correctly set in Vercel Settings > Environment Variables.</small>
-    </div>`;
+    outputDiv.innerHTML = `<p class="error">Generation failed. Please verify your Vercel Environment Variables and Project Quota.</p>`;
     loadingIndicator.classList.add('hidden');
   } finally {
     generateBtn.disabled = false;
@@ -165,9 +194,10 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
-async function generateAndPlaceImages(primaryKeyword: string, formData: FormData): Promise<void> {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+// Helper: Image Generation with Retries
+async function generateAndPlaceImages(formData: FormData, primaryKeyword: string): Promise<void> {
     const finalHtml = outputDiv.innerHTML;
+    const imagePrompts = (formData.get('image-prompts') as string || '').trim().split('\n').filter(p => p.trim() !== '');
     const imageStyle = (formData.get('image-style') as string || '').trim();
 
     const placeholderRegex = /\[(Featured Image|Image|Infographic|Diagram): (.*?)\]/g;
@@ -175,59 +205,69 @@ async function generateAndPlaceImages(primaryKeyword: string, formData: FormData
 
     if (placeholders.length === 0) return;
 
-    // Replace placeholders with loading UI immediately
+    const imageTasks = placeholders.map((match, index) => {
+        const type = match[1];
+        const caption = match[2]; 
+        let prompt = imagePrompts[index] || caption;
+        
+        let finalPrompt = (type === 'Featured Image') 
+            ? `Cinematic editorial featured image for "${primaryKeyword}". The text "${primaryKeyword}" is integrated beautifully into the typography of the scene. Style: ${imageStyle || 'modern professional tech'}. 8k.`
+            : `${imageStyle ? imageStyle + ', ' : ''}An professional ${type.toLowerCase()} of: "${prompt}"`;
+        
+        return { caption, prompt: finalPrompt, type };
+    });
+
     let pIdx = 0;
     outputDiv.innerHTML = finalHtml.replace(placeholderRegex, () => {
         const id = `img-gen-${pIdx++}`;
-        return `<figure id="${id}" class="image-placeholder loading"><div class="spinner"></div><figcaption>Synthesizing Visual...</figcaption></figure>`;
+        return `<figure id="${id}" class="image-placeholder loading"><div class="spinner"></div><figcaption>Generating Visual Content...</figcaption></figure>`;
     });
 
-    for (let i = 0; i < placeholders.length; i++) {
-        const match = placeholders[i];
-        const type = match[1];
-        const caption = match[2];
+    for (let i = 0; i < imageTasks.length; i++) {
+        const task = imageTasks[i];
         const el = document.getElementById(`img-gen-${i}`);
-        
-        const prompt = (type === 'Featured Image') 
-            ? `High-quality cinematic editorial image for an article about "${primaryKeyword}". Professional lighting, ${imageStyle || 'photorealistic'}.`
-            : `A professional ${type.toLowerCase()} of: "${caption}". Style: ${imageStyle || 'modern clean'}.`;
+        let success = false;
+        let retries = 0;
 
-        try {
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash-image',
-                contents: { parts: [{ text: prompt }] },
-            });
-            
-            let base64: string | undefined;
-            for (const part of response.candidates?.[0]?.content?.parts || []) {
-                if (part.inlineData) {
-                    base64 = part.inlineData.data;
-                    break;
-                }
-            }
+        while (retries < 3 && !success) {
+            try {
+                if (retries > 0) await new Promise(r => setTimeout(r, retries * 3000));
+                
+                const response = await ai.models.generateImages({
+                    model: 'imagen-4.0-generate-001',
+                    prompt: task.prompt,
+                    config: { numberOfImages: 1, outputMimeType: 'image/jpeg', aspectRatio: '16:9' },
+                });
+                
+                const bytes = response.generatedImages[0].image.imageBytes;
+                if (!bytes) throw new Error("No bytes");
 
-            if (base64) {
+                const url = `data:image/jpeg;base64,${bytes}`;
                 el?.replaceWith(Object.assign(document.createElement('figure'), {
                     className: 'generated-image-container',
-                    innerHTML: `<img src="data:image/png;base64,${base64}" alt="${caption}" class="generated-image"><figcaption>${caption}</figcaption>`
+                    innerHTML: `<img src="${url}" alt="${task.caption}" class="generated-image"><figcaption>${task.caption}</figcaption>`
                 }));
-            } else {
-                throw new Error("No image data in response");
+                success = true;
+            } catch (err: any) {
+                retries++;
+                const isRateLimit = err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED');
+                if (!isRateLimit) break;
             }
-        } catch (err) {
-            console.error(`Image failure for ${caption}:`, err);
-            if (el) {
-                el.innerHTML = `<div class="error-small">Visual generation unavailable for: ${caption}</div>`;
-                el.classList.remove('loading');
-            }
+        }
+
+        if (!success && el) {
+            el.innerHTML = `<p class="error">Image Generation Limit Reached. (Wait 60s)</p>`;
+            el.classList.remove('loading');
         }
     }
 }
 
+// Key Takeaways & SEO Metrics Logic
 function updateMetrics(formData: FormData) {
     const text = outputDiv.innerText;
+    const html = outputDiv.innerHTML;
     const readability = calculateReadability(text);
-    const seo = calculateSeoScore(text, outputDiv.innerHTML, formData);
+    const seo = calculateSeoScore(text, html, formData);
     
     readabilityScoreEl.textContent = readability > 0 ? readability.toFixed(1) : 'N/A';
     seoScoreEl.textContent = seo.toString();
@@ -238,7 +278,8 @@ function calculateReadability(text: string): number {
     const words = text.split(/\s+/).filter(w => w.length > 0).length;
     const sentences = (text.match(/[.!?]+/g) || []).length || 1;
     const syllables = text.split(/\s+/).reduce((acc, w) => acc + (w.match(/[aeiouy]+/gi)?.length || 1), 0);
-    return 0.39 * (words / sentences) + 11.8 * (syllables / words) - 15.59;
+    const score = 0.39 * (words / sentences) + 11.8 * (syllables / words) - 15.59;
+    return Math.max(0, score);
 }
 
 function calculateSeoScore(text: string, html: string, formData: FormData): number {
@@ -251,53 +292,60 @@ function calculateSeoScore(text: string, html: string, formData: FormData): numb
     return Math.min(100, s);
 }
 
-// Tool Buttons (Keywords, NLP)
+// Single Keyword Generator
 const kBtns = document.querySelectorAll('.generate-single-keyword-btn');
 kBtns.forEach(b => b.addEventListener('click', async () => {
     const btn = b as HTMLButtonElement;
     const kw = primaryKeywordInput.value.trim();
-    if (!kw) return;
+    const type = btn.dataset.type;
+    const target = document.getElementById(btn.dataset.target!) as HTMLTextAreaElement;
+
+    if (!kw) { alert("Enter Primary Keyword first."); return; }
     
     btn.disabled = true;
+    const btnText = btn.querySelector('.btn-text') as HTMLSpanElement;
     const spinner = btn.querySelector('.spinner-small') as HTMLDivElement;
+    
+    btnText.classList.add('hidden');
     spinner.classList.remove('hidden');
 
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
         const res = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: `Generate 5 expert ${btn.dataset.type} for "${kw}". Return as JSON array of strings.`,
+            contents: `Generate 5 expert ${type} for "${kw}". Return as JSON array of strings only.`,
             config: { responseMimeType: "application/json", responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } } }
         });
-        const target = document.getElementById(btn.dataset.target!) as HTMLTextAreaElement;
         target.value = JSON.parse(res.text).join('\n');
     } catch (e) {
         console.error(e);
     } finally {
         btn.disabled = false;
+        btnText.classList.remove('hidden');
         spinner.classList.add('hidden');
     }
 }));
 
+// NLP Suggester
 analyzeNlpBtn.addEventListener('click', async () => {
     const kw = primaryKeywordInput.value.trim();
     if (!kw) return;
     
     analyzeNlpBtn.disabled = true;
+    const btnText = analyzeNlpBtn.querySelector('.btn-text') as HTMLSpanElement;
     const spinner = analyzeNlpBtn.querySelector('.spinner-small') as HTMLDivElement;
+    
+    btnText.textContent = "Analyzing...";
     spinner.classList.remove('hidden');
 
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
         const res = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: `List 15 high-authority NLP entities for an article about "${kw}". Comma separated.`
+            contents: `Identify 15 high-authority NLP entities/concepts for an article about "${kw}". Comma separated list.`
         });
         nlpEntitiesInput.value = res.text;
-    } catch (e) {
-        console.error(e);
     } finally {
         analyzeNlpBtn.disabled = false;
+        btnText.textContent = "Analyze & Suggest";
         spinner.classList.add('hidden');
     }
 });
@@ -305,40 +353,97 @@ analyzeNlpBtn.addEventListener('click', async () => {
 function constructPrompt(formData: FormData): string {
     const get = (id: string) => (formData.get(id) as string || "").trim();
     const kw = get('primary-keyword');
-    const slang = get('country-slang');
+    const countrySlang = get('country-slang');
+    const authorBio = get('author-bio');
+    const externalLinksCount = get('external-links-count');
+    const addExternalLinks = formData.get('add-external-links') === 'on';
+    const internalSitemap = get('internal-sitemap');
+    const readerProblem = get('reader-problem');
+    const uniqueInsights = get('unique-insights');
+    const peopleFirstMode = formData.get('people-first-mode') === 'on';
     
+    const secondaryKeywords = get('secondary-keywords');
+    const longtailKeywords = get('longtail-keywords');
+    const clusterKeywords = get('cluster-keywords');
+    const relatedSearches = get('related-searches');
+    const lsiKeywords = get('lsi-keywords');
+    
+    const nlpEntities = get('nlp-entities');
+    const nlpTone = get('nlp-tone');
+    
+    const optimizePassageRanking = formData.get('optimize-passage-ranking') === 'on';
+    const includeKeyTakeaways = formData.get('include-key-takeaways') === 'on';
+    const addMythBusting = formData.get('add-myth-busting') === 'on';
+    
+    const affiliateProduct = get('affiliate-product');
+    const affiliateUrl = get('affiliate-url');
+    const affiliateAnchor = get('affiliate-anchor');
+    
+    const multimediaCount = get('multimedia-count');
+    const introHook = get('intro-hook');
+    const conclusionStyle = get('conclusion-style');
+
     return `
-      You are an Elite SEO Strategist. Generate:
-      1. %%JSON-LD-START%% Valid Article Schema %%JSON-LD-END%%
-      2. %%META-START%% Meta Description for "${kw}" (max 155 chars) %%META-END%%
-      3. A full SEO article in Markdown.
-
-      CONTEXT:
-      - Primary Keyword: "${kw}"
-      ${slang ? `- TONE REQUIREMENT: Use authentic "${slang}" slang and idioms naturally.` : ""}
-      - Reader Problem: ${get('reader-problem')}
-      - Unique Insight: ${get('unique-insights')}
-      - Author: ${get('author-bio')}
-      ${formData.get('people-first-mode') === 'on' ? "- Focus on high utility, no fluff." : ""}
-
-      OPTIMIZATION:
-      - Keywords to Bold: ${get('secondary-keywords')}, ${get('lsi-keywords')}.
-      - NLP Concepts: ${get('nlp-entities')}.
-      - Depth: ${get('article-length')}.
+      You are a World-Class SEO Strategist & Professional Content Creator. Your task is to generate a comprehensive, high-authority document in three distinct parts:
       
-      STRUCTURE:
-      - Use H1, H2, H3. Short paragraphs.
-      ${formData.get('include-key-takeaways') === 'on' ? "- Include 'Key Takeaways' box." : ""}
-      - Place exactly ${get('multimedia-count')} markers like [Featured Image: ${kw}] or [Image: Describing scene].
-      ${get('affiliate-url') ? `- Affiliate CTA for "${get('affiliate-product')}" at ${get('affiliate-url')} using "${get('affiliate-anchor')}".` : ""}
+      1. %%JSON-LD-START%%
+         A valid Article JSON-LD schema including the headline, author information, and keywords.
+         %%JSON-LD-END%%
+      
+      2. %%META-START%%
+         A CTR-optimized Meta Description (approx 155 characters) that includes the primary keyword "${kw}".
+         %%META-END%%
+      
+      3. A full SEO-optimized article in Markdown.
+
+      ---
+      ARTICLE SPECIFICATIONS:
+      ---
+      - Primary Focus: "${kw}"
+      ${countrySlang ? `- Target Audience/Slang: Please use local terminology and slang from "${countrySlang}" to make the content feel authentic and native.` : ""}
+      - Author Authority: ${authorBio || "An industry expert."}
+      
+      CONTENT DEPTH & E-E-A-T:
+      - Core Reader Problem: ${readerProblem || "Provide a comprehensive guide."}
+      - Unique Insight/Experience: ${uniqueInsights || "Include expert-level depth and analysis."}
+      ${peopleFirstMode ? "- People-First Filter: STRICTLY avoid generic AI fluff. Focus on actionable advice, utility, and factual accuracy." : ""}
+
+      SEMANTIC OPTIMIZATION:
+      - Include and BOLD these specific keywords where they fit naturally: 
+        Secondary: ${secondaryKeywords}, 
+        Long-tail: ${longtailKeywords}, 
+        Cluster: ${clusterKeywords}, 
+        Related: ${relatedSearches}, 
+        LSI: ${lsiKeywords}.
+      - Salient NLP Entities to cover: ${nlpEntities}.
+      - Semantic Tone: ${nlpTone}.
+
+      STRUCTURE & FORMATTING:
+      - Length: ${get('article-length')}.
+      - Formatting: Use short paragraphs (max 3 sentences), active voice, and bold headers (H1, H2, H3).
+      - Hook: ${introHook || "Start with an engaging introduction."}
+      ${includeKeyTakeaways ? "- Include a 'Key Takeaways' section immediately following the H1." : ""}
+      ${optimizePassageRanking ? "- Optimize H2/H3 sections for Passage Ranking by providing direct, concise answers (40-60 words) to likely user questions." : ""}
+      ${addMythBusting ? "- Include a 'Myths vs. Facts' section to establish unique value." : ""}
+      - Multimedia: Include exactly ${multimediaCount} placeholders like [Featured Image: A professional shot of ${kw}] or [Infographic: Visual breakdown of ${kw}] distributed logically.
+      
+      ${addExternalLinks ? `- External Links: Please find and include exactly ${externalLinksCount} high-authority external citations or references (use placeholder links [Source](URL) if specific URLs aren't known, or use grounded data).` : ""}
+      ${internalSitemap ? `- Internal Linking Strategy: Use the following URLs to suggest relevant internal links: ${internalSitemap}` : ""}
+      
+      ${affiliateUrl ? `- Affiliate Marketing: Strategically integrate a call-to-action for "${affiliateProduct}" using the anchor text "${affiliateAnchor}" pointing to ${affiliateUrl}. Ensure it feels like a natural recommendation.` : ""}
+      
+      - Conclusion: ${conclusionStyle || "Wrap up with a strong call to action."}
+
+      Strictly use the %% delimiters for the metadata blocks.
     `;
 }
 
+// Clipboard & Download
 copyBtn.addEventListener('click', () => {
-    navigator.clipboard.writeText(outputDiv.innerText).then(() => {
-        const old = copyBtn.textContent;
+    const html = outputDiv.innerHTML;
+    navigator.clipboard.writeText(html).then(() => {
         copyBtn.textContent = "Copied!";
-        setTimeout(() => copyBtn.textContent = old, 2000);
+        setTimeout(() => copyBtn.textContent = "Copy to Clipboard", 2000);
     });
 });
 
@@ -347,11 +452,11 @@ downloadBtn.addEventListener('click', () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `seo-content-${Date.now()}.html`;
+    a.download = `seo-article-${Date.now()}.html`;
     a.click();
 });
 
-// Init
-const isHigh = localStorage.getItem('highContrastMode') === 'true';
-highContrastToggle.checked = isHigh;
-document.body.classList.toggle('high-contrast', isHigh);
+// Init theme
+const saved = localStorage.getItem('highContrastMode') === 'true';
+highContrastToggle.checked = saved;
+document.body.classList.toggle('high-contrast', saved);
